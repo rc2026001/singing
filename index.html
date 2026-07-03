@@ -306,6 +306,34 @@
     margin-left:8px;
     font-weight:600;
   }
+  .ab-marks{margin-top:10px;}
+  .ab-mark-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:7px 0;
+  }
+  .ab-mark-name{
+    flex:0 0 34px;
+    font-size:12.5px;
+    font-weight:600;
+  }
+  .ab-mark-time{
+    flex:1;
+    font-size:16px;
+  }
+  .nudge-btn{
+    background:var(--ink-3);
+    border:1px solid var(--line);
+    color:var(--text);
+    border-radius:8px;
+    padding:8px 12px;
+    font-size:13px;
+    font-family:'JetBrains Mono',monospace;
+    cursor:pointer;
+    touch-action:manipulation;
+  }
+  .nudge-btn:active{background:var(--line);}
   .mic-status{
     display:flex;
     align-items:center;
@@ -476,17 +504,26 @@
         <span class="chev" id="abChev">▸</span>
       </div>
       <div id="abBody" style="display:none;">
-        <div class="ab-row">
-          <div style="flex:1;">
-            <label>起點(秒)</label>
-            <input type="number" id="abStart" min="0" inputmode="numeric" placeholder="0">
+        <button class="btn" id="abMarkBtn" style="width:100%;">🎯 邊聽邊標記:句子開始時按這裡</button>
+        <div class="ab-marks">
+          <div class="ab-mark-row">
+            <span class="ab-mark-name" style="color:var(--amber);">起點</span>
+            <span class="mono ab-mark-time" id="abStartDisplay">--:--</span>
+            <button class="nudge-btn" data-target="start" data-delta="-1">−1s</button>
+            <button class="nudge-btn" data-target="start" data-delta="1">＋1s</button>
           </div>
-          <div style="flex:1;">
-            <label>終點(秒)</label>
-            <input type="number" id="abEnd" min="0" inputmode="numeric" placeholder="15">
+          <div class="ab-mark-row">
+            <span class="ab-mark-name" style="color:var(--coral);">終點</span>
+            <span class="mono ab-mark-time" id="abEndDisplay">--:--</span>
+            <button class="nudge-btn" data-target="end" data-delta="-1">−1s</button>
+            <button class="nudge-btn" data-target="end" data-delta="1">＋1s</button>
           </div>
-          <button class="btn small" id="abSetBtn" style="flex:0 0 auto;" title="以目前播放位置設定">用現在</button>
-          <button class="btn small" id="abToggle" style="flex:0 0 auto;">開始</button>
+        </div>
+        <input type="hidden" id="abStart" value="">
+        <input type="hidden" id="abEnd" value="">
+        <div class="row" style="margin-top:10px;">
+          <button class="btn small" id="abToggle">開始反覆播放</button>
+          <button class="btn secondary small" id="abResetBtn" style="flex:0 0 auto;">重新標記</button>
         </div>
         <div class="speed-row">
           <span class="vol-label">速度</span>
@@ -495,7 +532,7 @@
           <button class="speed-btn active" data-speed="1">1×</button>
         </div>
         <p style="font-size:11px;color:var(--text-dim);margin:8px 0 0;">
-          建議一次只練5~15秒的一句:聽2~3遍 → 跟著唱幾遍看音準 → 唱不順就放慢速度 → 熟了再加長範圍。播放到句子開頭按「用現在」設起點,句尾再按一次設終點。
+          建議一次只練5~15秒的一句:聽2~3遍 → 跟著唱幾遍看音準 → 唱不順就放慢速度 → 熟了再加長範圍。標記後可用 −1s/＋1s 微調。
         </p>
       </div>
     </div>
@@ -584,7 +621,7 @@
     <div class="card">
       <h3>A-B 反覆練習怎麼用最有效</h3>
       <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
-        一次只練<b style="color:var(--text);">一句(約5~15秒)</b>,不要整段副歌一起練——肌肉記憶是一句一句建立的。流程:①先聽2~3遍不要唱,用耳朵記旋律 → ②跟著唱3~5遍,邊看音準線 → ③唱不順就降到0.75×或0.5×速度,<b style="color:var(--text);">慢而準勝過快而亂</b> → ④這句穩了,再把終點往後拉,把句子接起來。
+        一次只練<b style="color:var(--text);">一句(約5~15秒)</b>,不要整段副歌一起練——肌肉記憶是一句一句建立的。做法:播放歌曲,<b style="color:var(--text);">句子開始時按一下「標記」、句子結束時再按一下</b>,就圈好範圍了;差一點點可以用−1s/＋1s微調。接著:①先聽2~3遍不要唱,用耳朵記旋律 → ②跟著唱3~5遍,邊看音準線 → ③唱不順就降到0.75×或0.5×速度,<b style="color:var(--text);">慢而準勝過快而亂</b> → ④這句穩了,把終點＋1s往後推,把句子接起來。
       </p>
     </div>
     <div class="card">
@@ -807,14 +844,18 @@ function loadVideo(id){
 function createPlayer(id){
   stopAbLoop();
   resetSpeedUI();
+  abSet('start', null);
+  abSet('end', null);
   if(ytPlayer){
     ytPlayer.loadVideoById(id);
+    ytPlayer.unMute();
+    ytPlayer.setVolume(100);
   } else {
     ytPlayer = new YT.Player('ytPlayerDiv', {
       videoId: id,
       playerVars: { playsinline:1, rel:0 },
       events: {
-        onReady: ()=>{ toast('影片已載入,按播放開始'); },
+        onReady: (ev)=>{ ev.target.unMute(); ev.target.setVolume(100); toast('影片已載入,按播放開始'); },
         onError: ()=>{ toast('這部影片無法播放(可能不允許嵌入),請換一部試試'); }
       }
     });
@@ -830,53 +871,122 @@ function createPlayer(id){
   }
 }
 
-document.getElementById('playBtn').addEventListener('click', ()=>{ if(ytPlayer) ytPlayer.playVideo(); });
+document.getElementById('playBtn').addEventListener('click', ()=>{
+  if(!ytPlayer) return;
+  ytPlayer.unMute();
+  ytPlayer.playVideo();
+});
 document.getElementById('pauseBtn').addEventListener('click', ()=>{ if(ytPlayer) ytPlayer.pauseVideo(); });
 
 // ---------------- A-B loop (precise, via player time polling) ----------------
 let abActive = false;
 let abPollTimer = null;
 
-document.getElementById('abSetBtn').addEventListener('click', ()=>{
-  if(!ytPlayer || !currentVideoId){ toast('請先載入影片'); return; }
-  const t = Math.floor(ytPlayer.getCurrentTime());
-  const startEl = document.getElementById('abStart');
-  const endEl = document.getElementById('abEnd');
-  if(startEl.value === '' || (endEl.value !== '' && parseFloat(endEl.value) <= parseFloat(startEl.value))){
-    startEl.value = t; endEl.value = '';
-    toast('起點已設為 ' + t + ' 秒,播到結尾再按一次');
+function fmtTime(sec){
+  if(sec === '' || sec === null || isNaN(sec)) return '--:--';
+  sec = Math.max(0, Math.round(sec));
+  return Math.floor(sec/60) + ':' + String(sec%60).padStart(2,'0');
+}
+function abGet(which){
+  const v = document.getElementById(which === 'start' ? 'abStart' : 'abEnd').value;
+  return v === '' ? null : parseFloat(v);
+}
+function abSet(which, val){
+  document.getElementById(which === 'start' ? 'abStart' : 'abEnd').value = (val === null ? '' : val);
+  updateAbDisplay();
+}
+function updateAbDisplay(){
+  document.getElementById('abStartDisplay').textContent = fmtTime(abGet('start'));
+  document.getElementById('abEndDisplay').textContent = fmtTime(abGet('end'));
+  // mark button reflects the next action
+  const markBtn = document.getElementById('abMarkBtn');
+  if(abGet('start') === null){
+    markBtn.textContent = '🎯 邊聽邊標記:句子開始時按這裡';
+  } else if(abGet('end') === null){
+    markBtn.textContent = '🎯 句子結束時再按一次';
   } else {
-    endEl.value = t;
-    toast('終點已設為 ' + t + ' 秒,按「開始」反覆練習(再按會更新終點)');
+    markBtn.textContent = '🎯 重新標記起點';
   }
+}
+
+document.getElementById('abMarkBtn').addEventListener('click', ()=>{
+  if(!ytPlayer || !currentVideoId){ toast('請先載入並播放影片'); return; }
+  const t = Math.floor(ytPlayer.getCurrentTime());
+  if(abGet('start') === null || abGet('end') !== null){
+    // fresh mark (or re-mark after a complete pair)
+    abSet('start', t);
+    abSet('end', null);
+    toast('起點:' + fmtTime(t) + ',句子結束時再按一次');
+  } else {
+    if(t <= abGet('start')){ toast('終點要在起點之後,請繼續播放再按'); return; }
+    abSet('end', t);
+    toast('標記完成 ' + fmtTime(abGet('start')) + ' ~ ' + fmtTime(t) + ',按「開始反覆播放」');
+  }
+});
+
+document.querySelectorAll('.nudge-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    const which = btn.dataset.target;
+    const delta = parseInt(btn.dataset.delta);
+    const cur = abGet(which);
+    if(cur === null){ toast('請先用上方按鈕標記'); return; }
+    let next = Math.max(0, cur + delta);
+    // keep start < end
+    const start = which === 'start' ? next : abGet('start');
+    const end = which === 'end' ? next : abGet('end');
+    if(start !== null && end !== null && end <= start){
+      toast('終點要在起點之後'); return;
+    }
+    abSet(which, next);
+    // if a loop is running, restart it so the new bounds take effect cleanly
+    if(abActive){ restartAbLoop(); }
+  });
+});
+
+document.getElementById('abResetBtn').addEventListener('click', ()=>{
+  stopAbLoop();
+  abSet('start', null);
+  abSet('end', null);
+  toast('已清除標記');
 });
 
 document.getElementById('abToggle').addEventListener('click', ()=>{
   if(!ytPlayer || !currentVideoId){ toast('請先載入影片'); return; }
   if(!abActive){
-    const start = parseFloat(document.getElementById('abStart').value) || 0;
-    const end = parseFloat(document.getElementById('abEnd').value);
-    if(isNaN(end) || end <= start){ toast('請設定有效的起點與終點(終點要大於起點)'); return; }
-    abActive = true;
-    updateAbHint();
-    document.getElementById('abToggle').textContent = '停止';
-    ytPlayer.seekTo(start, true);
-    ytPlayer.playVideo();
-    abPollTimer = setInterval(()=>{
-      if(!abActive || !ytPlayer) return;
-      // only loop while actually playing — paused video stays paused
-      if(ytPlayer.getPlayerState() === YT.PlayerState.PLAYING && ytPlayer.getCurrentTime() >= end){
-        ytPlayer.seekTo(start, true);
-      }
-    }, 200);
+    startAbLoop();
   } else {
     stopAbLoop();
   }
 });
+
+function startAbLoop(){
+  const start = abGet('start');
+  const end = abGet('end');
+  if(start === null || end === null || end <= start){
+    toast('請先用「標記」按鈕圈出想練的一句'); return;
+  }
+  abActive = true;
+  updateAbHint();
+  document.getElementById('abToggle').textContent = '停止';
+  ytPlayer.seekTo(start, true);
+  ytPlayer.playVideo();
+  abPollTimer = setInterval(()=>{
+    if(!abActive || !ytPlayer) return;
+    // only loop while actually playing — paused video stays paused
+    if(ytPlayer.getPlayerState() === YT.PlayerState.PLAYING && ytPlayer.getCurrentTime() >= abGet('end')){
+      ytPlayer.seekTo(abGet('start'), true);
+    }
+  }, 200);
+}
+function restartAbLoop(){
+  if(abPollTimer){ clearInterval(abPollTimer); abPollTimer = null; }
+  abActive = false;
+  startAbLoop();
+}
 function stopAbLoop(){
   abActive = false;
   updateAbHint();
-  document.getElementById('abToggle').textContent = '開始';
+  document.getElementById('abToggle').textContent = '開始反覆播放';
   if(abPollTimer){ clearInterval(abPollTimer); abPollTimer = null; }
 }
 
@@ -1369,6 +1479,7 @@ document.getElementById('clearDataBtn').addEventListener('click', ()=>{
 // ---------------- Init ----------------
 initFromSettings();
 resizeCanvas();
+updateAbDisplay();
 window.addEventListener('beforeunload', ()=>{ if(sessionPitches.length>5) endSessionAndSave(); });
 
 // PWA: register service worker (safe no-op on browsers without support
