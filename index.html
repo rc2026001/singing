@@ -334,6 +334,21 @@
     touch-action:manipulation;
   }
   .nudge-btn:active{background:var(--line);}
+  .duet-box{margin-top:10px;}
+  .duet-mix{margin-top:10px;}
+  .sync-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:10px;
+  }
+  .sync-row .mono{
+    flex:0 0 auto;
+    min-width:44px;
+    text-align:center;
+    color:var(--amber);
+    font-size:13px;
+  }
   .mic-status{
     display:flex;
     align-items:center;
@@ -561,6 +576,19 @@
       </div>
       <div id="recPlaybackWrap" style="margin-top:10px;display:none;">
         <audio id="recAudio" controls style="width:100%;"></audio>
+        <div class="duet-box">
+          <button class="btn secondary small" id="duetBtn" style="width:100%;">🎧 跟原曲一起播放,比較我唱的和原曲</button>
+          <div class="duet-mix" id="duetMix" style="display:none;">
+            <label class="vol-label" style="display:block;margin-bottom:4px;">混音平衡:原曲 ⟷ 我的錄音</label>
+            <input type="range" id="duetBalance" min="0" max="100" value="50">
+            <div class="sync-row">
+              <span class="vol-label">同步微調</span>
+              <button class="nudge-btn" id="syncEarlier">錄音慢一點</button>
+              <span class="mono" id="syncOffsetDisplay">0.0s</span>
+              <button class="nudge-btn" id="syncLater">錄音快一點</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -620,6 +648,13 @@
       <h3>A-B 反覆練習怎麼用最有效</h3>
       <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
         一次只練<b style="color:var(--text);">一句(約5~15秒)</b>,不要整段副歌一起練——肌肉記憶是一句一句建立的。做法:播放歌曲,<b style="color:var(--text);">句子開始時按一下「標記」、句子結束時再按一下</b>,就圈好範圍了;差一點點可以用−1s/＋1s微調。接著:①先聽2~3遍不要唱,用耳朵記旋律 → ②跟著唱3~5遍,邊看音準線 → ③唱不順就降到0.75×或0.5×速度,<b style="color:var(--text);">慢而準勝過快而亂</b> → ④這句穩了,把終點＋1s往後推,把句子接起來。
+      </p>
+    </div>
+    <div class="card">
+      <h3>跟原曲一起播放(比較我唱的和原曲)</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        錄完音後可以按「🎧 跟原曲一起播放」,讓原曲和你的錄音同時響起,直接用耳朵比較音準、咬字和情緒。用「混音平衡」滑桿調整兩邊的音量比例;如果聽起來一個比另一個快,用「同步微調」的兩個按鈕(每按一次調整0.2秒)把它們對齊,調整會馬上套用,不用重新按播放。<br><br>
+        <b style="color:var(--text);">誠實說明:</b>這是兩段聲音同時播放,不是把它們合併成一個檔案——瀏覽器基於安全限制,無法擷取YouTube本身的聲音來混音,所以沒有辦法輸出一個「合併好的」音檔。每次重新錄音,同步微調會歸零,需要的話再調一次。
       </p>
     </div>
     <div class="card">
@@ -1125,6 +1160,7 @@ function stopMic(){
   endSessionAndSave();
 }
 function pauseVideoIfPlaying(){
+  if(duetActive) return; // duet manages its own playback/pause state
   if(ytPlayer && typeof ytPlayer.getPlayerState === 'function' &&
      ytPlayer.getPlayerState() === YT.PlayerState.PLAYING){
     ytPlayer.pauseVideo();
@@ -1235,12 +1271,16 @@ function renderPitchCanvas(){
 }
 
 // ---------------- Recording ----------------
+let recVideoStartTime = null; // where in the song this take began, for duet playback
+
 document.getElementById('recToggleBtn').addEventListener('click', ()=>{
   if(!isRecording){
     if(!micStream){ toast('請先開啟麥克風'); return; }
     recChunks = [];
     try{ mediaRecorder = new MediaRecorder(micStream); }
     catch(e){ toast('這個瀏覽器不支援錄音'); return; }
+    recVideoStartTime = (ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+      ? ytPlayer.getCurrentTime() : null;
     mediaRecorder.ondataavailable = e => recChunks.push(e.data);
     mediaRecorder.onstop = ()=>{
       const blob = new Blob(recChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
@@ -1248,6 +1288,11 @@ document.getElementById('recToggleBtn').addEventListener('click', ()=>{
       if(audioEl.src) URL.revokeObjectURL(audioEl.src); // free previous recording
       audioEl.src = URL.createObjectURL(blob);
       document.getElementById('recPlaybackWrap').style.display = 'block';
+      document.getElementById('duetMix').style.display = 'none';
+      document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
+      syncOffset = 0;
+      updateSyncDisplay();
+      stopDuet();
       toast('錄音完成(僅暫存於本次分頁,不會上傳)');
     };
     mediaRecorder.start();
@@ -1263,7 +1308,81 @@ document.getElementById('recToggleBtn').addEventListener('click', ()=>{
   }
 });
 
-// ---------------- Playlist ----------------
+// ---------------- Duet playback (simultaneous, not a merged file) ----------------
+// Two independent audio sources played at the same time so you can compare
+// by ear. This is NOT a single mixed audio file — capturing YouTube's own
+// audio stream to merge it isn't possible from the browser (cross-origin
+// restriction), so instead we start both playing together as closely as
+// we can and let you balance the volumes and nudge the timing.
+let duetActive = false;
+let syncOffset = 0; // seconds; positive = delay the recording start, negative = delay the video start
+let duetTimers = [];
+
+document.getElementById('duetBtn').addEventListener('click', ()=>{
+  if(duetActive){ stopDuet(); return; }
+  if(!ytPlayer || !currentVideoId){ toast('影片不見了,請重新載入'); return; }
+  const recAudio = document.getElementById('recAudio');
+  if(!recAudio.src){ toast('還沒有錄音'); return; }
+
+  duetActive = true;
+  document.getElementById('duetBtn').textContent = '⏹ 停止一起播放';
+  document.getElementById('duetMix').style.display = 'block';
+  applyDuetBalance();
+
+  if(recVideoStartTime !== null) ytPlayer.seekTo(recVideoStartTime, true);
+  ytPlayer.unMute();
+  recAudio.currentTime = 0;
+
+  // apply the manual sync offset: whichever side should start later gets a setTimeout delay
+  const videoDelayMs = syncOffset < 0 ? Math.abs(syncOffset) * 1000 : 0;
+  const recDelayMs = syncOffset > 0 ? syncOffset * 1000 : 0;
+  duetTimers.push(setTimeout(()=>{ if(duetActive) ytPlayer.playVideo(); }, videoDelayMs));
+  duetTimers.push(setTimeout(()=>{ if(duetActive) recAudio.play(); }, recDelayMs));
+
+  // if either side ends or is paused by the user, stop the duet cleanly
+  recAudio.addEventListener('ended', stopDuet, {once:true});
+});
+
+document.getElementById('duetBalance').addEventListener('input', applyDuetBalance);
+function applyDuetBalance(){
+  const v = parseInt(document.getElementById('duetBalance').value); // 0=song only, 100=voice only
+  if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100 - v);
+  document.getElementById('recAudio').volume = v / 100;
+}
+function stopDuet(){
+  if(!duetActive) return;
+  duetActive = false;
+  duetTimers.forEach(t=>clearTimeout(t));
+  duetTimers = [];
+  document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
+  const recAudio = document.getElementById('recAudio');
+  recAudio.pause();
+  if(ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+  if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100); // restore full song volume
+}
+
+function updateSyncDisplay(){
+  const el = document.getElementById('syncOffsetDisplay');
+  el.textContent = (syncOffset > 0 ? '+' : '') + syncOffset.toFixed(1) + 's';
+}
+document.getElementById('syncEarlier').addEventListener('click', ()=>{
+  // recording plays later relative to the video
+  syncOffset = Math.round((syncOffset + 0.2) * 10) / 10;
+  updateSyncDisplay();
+  if(duetActive) restartDuetForSync();
+});
+document.getElementById('syncLater').addEventListener('click', ()=>{
+  // recording plays earlier relative to the video
+  syncOffset = Math.round((syncOffset - 0.2) * 10) / 10;
+  updateSyncDisplay();
+  if(duetActive) restartDuetForSync();
+});
+function restartDuetForSync(){
+  // re-trigger the duet start so the new offset applies immediately,
+  // without needing to press stop first
+  stopDuet();
+  document.getElementById('duetBtn').click();
+}
 document.getElementById('saveSongBtn').addEventListener('click', ()=>{
   if(!currentVideoId){ toast('請先載入一首歌'); return; }
   const suggested = document.getElementById('songNameInput').value.trim() || '未命名歌曲';
