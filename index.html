@@ -652,7 +652,7 @@
     <div class="card">
       <h3>跟原曲一起播放(比較我唱的和原曲)</h3>
       <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
-        錄完音後可以按「🎧 跟原曲一起播放」,讓原曲和你的錄音同時響起,直接用耳朵比較音準、咬字和情緒。用「混音平衡」滑桿調整兩邊的音量比例;如果聽起來一個比另一個快,用「同步微調」的兩個按鈕(每按一次調整0.2秒)把它們對齊,調整會馬上套用,不用重新按播放。<br><br>
+        錄完音後可以按「🎧 跟原曲一起播放」,讓原曲和你的錄音同時響起,直接用耳朵比較音準、咬字和情緒——<b style="color:var(--text);">也可以直接用錄音播放器本身的播放/暫停/拖曳來控制</b>,原曲會自動跟著同步,不一定要用這顆按鈕。用「混音平衡」滑桿調整兩邊的音量比例;如果聽起來一個比另一個快,用「同步微調」的兩個按鈕(每按一次調整0.2秒)把它們對齊,調整會馬上套用。<br><br>
         <b style="color:var(--text);">誠實說明:</b>這是兩段聲音同時播放,不是把它們合併成一個檔案——瀏覽器基於安全限制,無法擷取YouTube本身的聲音來混音,所以沒有辦法輸出一個「合併好的」音檔。每次重新錄音,同步微調會歸零,需要的話再調一次。
       </p>
     </div>
@@ -1325,71 +1325,118 @@ document.getElementById('recToggleBtn').addEventListener('click', ()=>{
 });
 
 // ---------------- Duet playback (simultaneous, not a merged file) ----------------
-// Two independent audio sources played at the same time so you can compare
-// by ear. This is NOT a single mixed audio file — capturing YouTube's own
-// audio stream to merge it isn't possible from the browser (cross-origin
-// restriction), so instead we start both playing together as closely as
-// we can and let you balance the volumes and nudge the timing.
+// Two independent audio sources played together so you can compare by ear.
+// This is NOT a single mixed audio file — capturing YouTube's own audio
+// stream to merge it isn't possible from the browser (cross-origin
+// restriction), so instead we keep them tightly in sync as separate tracks.
+//
+// Design: everything is driven off the recording's OWN native play/pause/seek
+// events, not a separate custom flow. That means playing, pausing, or
+// scrubbing the recording via its normal audio controls keeps the video in
+// sync automatically — not just when using the "跟原曲一起播放" button, which
+// itself is just a thin wrapper that calls recAudio.play()/pause().
 let duetActive = false;
-let syncOffset = 0; // seconds; positive = delay the recording start, negative = delay the video start
+let syncOffset = 0; // seconds; added to the video's target seek position to compensate for perceived drift
 let duetTimers = [];
+// Media events (play/pause/seeked) fire ASYNCHRONOUSLY, after the code that
+// triggered them has finished — so a boolean guard reset synchronously would
+// already be false by the time the event arrives. Instead, each programmatic
+// call increments a counter, and the handler consumes (decrements) exactly one.
+const suppress = { play:0, pause:0, seeked:0 };
 
-document.getElementById('duetBtn').addEventListener('click', ()=>{
-  if(duetActive){ stopDuet(); return; }
-  if(!ytPlayer || !currentVideoId){ toast('影片不見了,請重新載入'); return; }
-  const recAudio = document.getElementById('recAudio');
-  if(!recAudio.src){ toast('還沒有錄音'); return; }
+const recAudio = document.getElementById('recAudio');
+
+function targetVideoTimeFor(recordingOffsetSec){
+  if(recVideoStartTime === null) return null;
+  return Math.max(0, recVideoStartTime + recordingOffsetSec + syncOffset);
+}
+
+recAudio.addEventListener('play', ()=>{
+  if(suppress.play > 0){ suppress.play--; return; } // our own resume, not the user
+  if(!ytPlayer || !currentVideoId){ toast('影片不見了,請重新載入'); recAudio.pause(); return; }
+  const targetVideoTime = targetVideoTimeFor(recAudio.currentTime);
+  if(targetVideoTime === null){ return; } // no known video position for this recording, play voice only
+
+  const resumeOffset = recAudio.currentTime;
+  suppress.pause++;
+  recAudio.pause(); // hold the recording until the video has actually caught up
 
   duetActive = true;
-  document.getElementById('duetBtn').textContent = '⏹ 停止一起播放';
+  document.getElementById('duetBtn').textContent = '⏳ 準備中(影片正在緩衝)...';
   document.getElementById('duetMix').style.display = 'block';
   applyDuetBalance();
 
-  if(recVideoStartTime !== null) ytPlayer.seekTo(recVideoStartTime, true);
+  ytPlayer.seekTo(targetVideoTime, true);
   ytPlayer.unMute();
-  recAudio.currentTime = 0;
+  ytPlayer.playVideo();
 
-  // apply the manual sync offset: whichever side should start later gets a delay.
-  // Critically, the side with NO delay must play synchronously right here in the
-  // click handler — wrapping play() in setTimeout (even 0ms) breaks the browser's
-  // "this came from a user gesture" permission and can silently block playback.
-  const videoDelayMs = syncOffset < 0 ? Math.abs(syncOffset) * 1000 : 0;
-  const recDelayMs = syncOffset > 0 ? syncOffset * 1000 : 0;
-
-  if(videoDelayMs > 0){
-    duetTimers.push(setTimeout(()=>{ if(duetActive) ytPlayer.playVideo(); }, videoDelayMs));
-  } else {
-    ytPlayer.playVideo();
-  }
-  if(recDelayMs > 0){
-    duetTimers.push(setTimeout(()=>{ if(duetActive) recAudio.play().catch(()=>{}); }, recDelayMs));
-  } else {
-    recAudio.play().catch(()=>{
-      toast('瀏覽器擋下了錄音播放,請再按一次「跟原曲一起播放」');
-      stopDuet();
-    });
-  }
-
-  // if either side ends or is paused by the user, stop the duet cleanly
-  recAudio.addEventListener('ended', stopDuet, {once:true});
+  // Seeking mid-video forces YouTube to buffer before it can actually play —
+  // this can take a few seconds on longer videos. Wait for the player to
+  // truly reach PLAYING state before resuming the recording, so they start
+  // together rather than racing ahead of a video that's still buffering.
+  let waitedMs = 0;
+  const bufferWait = setInterval(()=>{
+    if(!duetActive){ clearInterval(bufferWait); return; }
+    waitedMs += 50;
+    const isPlaying = ytPlayer.getPlayerState && ytPlayer.getPlayerState() === YT.PlayerState.PLAYING;
+    if(isPlaying || waitedMs >= 4000){ // 4s safety cap so it never hangs silently forever
+      clearInterval(bufferWait);
+      document.getElementById('duetBtn').textContent = '⏹ 停止一起播放';
+      suppress.seeked++;
+      recAudio.currentTime = resumeOffset;
+      suppress.play++;
+      recAudio.play().catch(()=>{
+        suppress.play = Math.max(0, suppress.play - 1); // play event won't fire, don't swallow the user's next one
+        toast('瀏覽器擋下了錄音播放,請再按一次');
+        stopDuet();
+      });
+    }
+  }, 50);
+  duetTimers.push(bufferWait);
 });
+
+recAudio.addEventListener('pause', ()=>{
+  if(suppress.pause > 0){ suppress.pause--; return; } // our own hold-for-buffering pause, not the user
+  duetActive = false;
+  duetTimers.forEach(t=>clearTimeout(t));
+  duetTimers = [];
+  document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
+  if(ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+  if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100); // restore full volume
+});
+
+recAudio.addEventListener('seeked', ()=>{
+  if(suppress.seeked > 0){ suppress.seeked--; return; } // our own resumeOffset restore
+  // user dragged the recording's own scrubber — if we're mid-duet, follow along
+  if(!duetActive) return;
+  const targetVideoTime = targetVideoTimeFor(recAudio.currentTime);
+  if(targetVideoTime !== null && ytPlayer) ytPlayer.seekTo(targetVideoTime, true);
+});
+
+recAudio.addEventListener('ended', ()=>{
+  duetActive = false;
+  document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
+  if(ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+  if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100);
+});
+
+// the duet button is just a convenience wrapper around the recording's own
+// native play/pause — all the actual sync logic lives in the events above
+document.getElementById('duetBtn').addEventListener('click', ()=>{
+  if(!recAudio.src){ toast('還沒有錄音'); return; }
+  if(duetActive || !recAudio.paused){ recAudio.pause(); }
+  else { recAudio.play(); }
+});
+
+function stopDuet(){
+  if(duetActive || !recAudio.paused) recAudio.pause();
+}
 
 document.getElementById('duetBalance').addEventListener('input', applyDuetBalance);
 function applyDuetBalance(){
   const v = parseInt(document.getElementById('duetBalance').value); // 0=song only, 100=voice only
   if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100 - v);
-  document.getElementById('recAudio').volume = v / 100;
-}
-function stopDuet(){
-  if(!duetActive) return;
-  duetActive = false;
-  duetTimers.forEach(t=>clearTimeout(t));
-  duetTimers = [];
-  document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
-  const recAudio = document.getElementById('recAudio');
-  recAudio.pause();
-  if(ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
-  if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100); // restore full song volume
+  recAudio.volume = v / 100;
 }
 
 function updateSyncDisplay(){
@@ -1397,23 +1444,22 @@ function updateSyncDisplay(){
   el.textContent = (syncOffset > 0 ? '+' : '') + syncOffset.toFixed(1) + 's';
 }
 document.getElementById('syncEarlier').addEventListener('click', ()=>{
-  // recording plays later relative to the video
+  // pushes the video's matched position later, making the recording sound relatively behind
   syncOffset = Math.round((syncOffset + 0.2) * 10) / 10;
   updateSyncDisplay();
-  if(duetActive) restartDuetForSync();
+  if(duetActive) resyncNow();
 });
 document.getElementById('syncLater').addEventListener('click', ()=>{
-  // recording plays earlier relative to the video
   syncOffset = Math.round((syncOffset - 0.2) * 10) / 10;
   updateSyncDisplay();
-  if(duetActive) restartDuetForSync();
+  if(duetActive) resyncNow();
 });
-function restartDuetForSync(){
-  // re-trigger the duet start so the new offset applies immediately,
-  // without needing to press stop first
-  stopDuet();
-  document.getElementById('duetBtn').click();
+function resyncNow(){
+  // apply the new offset immediately without restarting the recording from scratch
+  const targetVideoTime = targetVideoTimeFor(recAudio.currentTime);
+  if(targetVideoTime !== null && ytPlayer) ytPlayer.seekTo(targetVideoTime, true);
 }
+
 document.getElementById('saveSongBtn').addEventListener('click', ()=>{
   if(!currentVideoId){ toast('請先載入一首歌'); return; }
   const suggested = document.getElementById('songNameInput').value.trim() || '未命名歌曲';
