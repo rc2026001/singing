@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<!-- v5 - self-hosted edition: YouTube IFrame API, localStorage persistence, lyrics, onboarding -->
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#12141c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="歌唱練習">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>歌唱練習室</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --ink:#12141c;
+    --ink-2:#1b1e2b;
+    --ink-3:#252938;
+    --line:#333748;
+    --amber:#e8a33d;
+    --teal:#4bb3a1;
+    --coral:#e0563f;
+    --text:#eae8e1;
+    --text-dim:#9a9aa5;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--text);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+    transition:background .3s, color .3s;
+  }
+  .mono{font-family:'JetBrains Mono',monospace;}
+
+  header{
+    padding:20px 18px 10px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+  }
+  header .brand{
+    font-family:'Fraunces',serif;
+    font-weight:700;
+    font-size:22px;
+    letter-spacing:.3px;
+  }
+  header .brand span{color:var(--amber);}
+  main{
+    max-width:520px;
+    margin:0 auto;
+    padding:0 14px 90px;
+  }
+
+  .tabs{
+    display:flex;
+    gap:6px;
+    margin:14px 0 18px;
+    background:var(--ink-2);
+    padding:4px;
+    border-radius:12px;
+    border:1px solid var(--line);
+  }
+  .tab{
+    flex:1;
+    text-align:center;
+    padding:9px 2px;
+    font-size:12.5px;
+    border-radius:9px;
+    cursor:pointer;
+    color:var(--text-dim);
+    transition:.2s;
+    user-select:none;
+  }
+  .tab.active{
+    background:var(--amber);
+    color:#161616;
+    font-weight:600;
+  }
+
+  .view{display:none;}
+  .view.active{display:block;}
+
+  .card{
+    background:var(--ink-2);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px;
+    margin-bottom:14px;
+  }
+  .card h3{
+    margin:0 0 10px;
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--text-dim);
+    font-weight:600;
+  }
+
+  .steps{
+    counter-reset:step;
+    margin:0; padding:0;
+    list-style:none;
+  }
+  .steps li{
+    counter-increment:step;
+    display:flex;
+    gap:10px;
+    align-items:flex-start;
+    padding:7px 0;
+    font-size:13.5px;
+    line-height:1.5;
+  }
+  .steps li::before{
+    content:counter(step);
+    flex:0 0 22px;
+    height:22px;
+    border-radius:50%;
+    background:var(--amber);
+    color:#161616;
+    font-weight:700;
+    font-size:12px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    margin-top:1px;
+  }
+
+  input[type=text], input[type=number]{
+    width:100%;
+    background:var(--ink-3);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:12px;
+    border-radius:9px;
+    font-size:16px; /* 16px prevents iOS auto-zoom on focus */
+    font-family:'Inter',sans-serif;
+  }
+  input::placeholder{color:var(--text-dim);}
+
+  .row{display:flex; gap:8px;}
+  .row > *{flex:1;}
+
+  button.btn{
+    background:var(--amber);
+    color:#161616;
+    border:none;
+    padding:12px 16px;
+    border-radius:9px;
+    font-weight:600;
+    font-size:14px;
+    cursor:pointer;
+    font-family:'Inter',sans-serif;
+    touch-action:manipulation;
+  }
+  button.btn.secondary{
+    background:transparent;
+    border:1px solid var(--line);
+    color:var(--text);
+  }
+  button.btn.small{
+    padding:9px 12px;
+    font-size:13px;
+  }
+  button.btn:disabled{opacity:.4; cursor:not-allowed;}
+
+  .video-wrap{
+    position:relative;
+    width:100%;
+    aspect-ratio:16/9;
+    border-radius:var(--radius);
+    overflow:hidden;
+    background:#000;
+    margin-bottom:12px;
+  }
+  .video-wrap iframe, .video-wrap #ytPlayerDiv{
+    position:absolute; inset:0;
+    width:100%; height:100%; border:0;
+  }
+  .video-placeholder{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    height:100%;
+    color:var(--text-dim);
+    font-size:13px;
+    text-align:center;
+    padding:20px;
+  }
+
+  .pitch-panel{
+    background:var(--ink-2);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:14px;
+    margin-bottom:14px;
+  }
+  .pitch-readout{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:10px;
+  }
+  .pitch-note{
+    font-family:'Fraunces',serif;
+    font-size:36px;
+    font-weight:600;
+    color:var(--amber);
+    min-width:70px;
+  }
+  .pitch-hz{
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px;
+    color:var(--text-dim);
+  }
+  canvas#pitchCanvas{
+    width:100%;
+    height:150px;
+    display:block;
+    border-radius:9px;
+    background:var(--ink-3);
+  }
+  .vol-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+  }
+  .vol-label{
+    font-size:11px;
+    color:var(--text-dim);
+    flex:0 0 auto;
+  }
+  .vol-track{
+    flex:1;
+    height:8px;
+    background:var(--ink-3);
+    border-radius:4px;
+    overflow:hidden;
+  }
+  .vol-fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, var(--teal), var(--amber) 70%, var(--coral));
+    border-radius:4px;
+    transition:width .08s linear;
+  }
+  .sing-stats{
+    display:flex;
+    justify-content:space-between;
+    font-size:11.5px;
+    color:var(--text-dim);
+    margin-top:8px;
+  }
+  .sing-stats b{color:var(--amber); font-weight:600;}
+  .speed-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:10px;
+  }
+  .speed-btn{
+    background:var(--ink-3);
+    border:1px solid var(--line);
+    color:var(--text-dim);
+    border-radius:8px;
+    padding:7px 12px;
+    font-size:12.5px;
+    font-family:'JetBrains Mono',monospace;
+    cursor:pointer;
+    touch-action:manipulation;
+  }
+  .speed-btn.active{
+    background:var(--amber);
+    color:#161616;
+    border-color:var(--amber);
+    font-weight:700;
+  }
+  .collapse-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    cursor:pointer;
+    user-select:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .collapse-head h3{margin:0;}
+  .chev{
+    color:var(--text-dim);
+    font-size:14px;
+    transition:transform .2s;
+    padding:2px 6px;
+  }
+  .chev.open{transform:rotate(90deg);}
+  .ab-hint{
+    text-transform:none;
+    letter-spacing:0;
+    font-size:11px;
+    color:var(--teal);
+    margin-left:8px;
+    font-weight:600;
+  }
+  .mic-status{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12px;
+    color:var(--text-dim);
+    margin-top:8px;
+  }
+  .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:var(--line);
+  }
+  .dot.live{background:var(--teal); box-shadow:0 0 6px var(--teal);}
+  .dot.rec{background:var(--coral); box-shadow:0 0 6px var(--coral);}
+
+  .ab-row{
+    display:flex;
+    gap:8px;
+    align-items:flex-end;
+    margin-top:10px;
+  }
+  .ab-row label{
+    font-size:11px;
+    color:var(--text-dim);
+    display:block;
+    margin-bottom:3px;
+  }
+
+  .transport{
+    display:flex;
+    gap:8px;
+    margin-top:12px;
+  }
+
+  .range-stat{
+    display:flex;
+    justify-content:space-between;
+    padding:10px 0;
+    border-bottom:1px solid var(--line);
+    font-size:14px;
+  }
+  .range-stat:last-child{border-bottom:none;}
+  .range-stat .val{font-family:'JetBrains Mono',monospace; color:var(--amber);}
+
+  .list-item{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:12px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .list-item:last-child{border-bottom:none;}
+  .list-item .meta{font-size:12px;color:var(--text-dim);margin-top:2px;}
+  .list-item .name{font-weight:600;font-size:14.5px;}
+  .icon-btn{
+    background:none;
+    border:none;
+    color:var(--text-dim);
+    cursor:pointer;
+    font-size:13px;
+    padding:8px;
+    touch-action:manipulation;
+  }
+  .empty{
+    color:var(--text-dim);
+    font-size:13px;
+    text-align:center;
+    padding:24px 10px;
+  }
+
+  textarea{
+    width:100%;
+    background:var(--ink-3);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:12px;
+    border-radius:9px;
+    font-size:16px;
+    font-family:'Inter',sans-serif;
+    min-height:70px;
+    resize:vertical;
+  }
+  textarea#songLyrics{min-height:130px; line-height:1.8;}
+
+  .slider-row{margin-bottom:12px;}
+  .slider-row label{
+    display:flex;
+    justify-content:space-between;
+    font-size:13px;
+    color:var(--text-dim);
+    margin-bottom:6px;
+  }
+  input[type=range]{width:100%;accent-color:var(--amber);}
+
+  .toast{
+    position:fixed;
+    bottom:18px;
+    left:50%;
+    transform:translateX(-50%);
+    background:var(--ink-3);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:10px 18px;
+    border-radius:20px;
+    font-size:13px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .25s;
+    z-index:50;
+    max-width:88vw;
+    text-align:center;
+  }
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">歌唱練習<span>室</span></div>
+</header>
+
+<main>
+  <div class="tabs">
+    <div class="tab active" data-tab="practice">練習</div>
+    <div class="tab" data-tab="playlist">歌單</div>
+    <div class="tab" data-tab="history">紀錄</div>
+    <div class="tab" data-tab="guide">說明</div>
+    <div class="tab" data-tab="settings">設定</div>
+  </div>
+
+  <!-- PRACTICE VIEW -->
+  <section class="view active" id="view-practice">
+
+    <div class="card" id="howToCard">
+      <h3>怎麼開始</h3>
+      <ol class="steps">
+        <li>🎧 先戴上耳機——這樣麥克風只會聽到你的聲音,不會把伴奏一起收進去</li>
+        <li>輸入歌名按「前往」,會開YouTube讓你找影片;複製影片連結,貼回來再按一次「前往」</li>
+        <li>按「🎤 開始收音」,跟著唱,看即時音準!</li>
+      </ol>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn secondary small" id="hideHowToBtn">知道了,不再顯示</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>選歌</h3>
+      <div class="row">
+        <input type="text" id="songNameInput" placeholder="輸入歌名,或貼上YouTube連結" enterkeyhint="go">
+        <button class="btn small" id="goBtn" style="flex:0 0 auto;">前往</button>
+      </div>
+    </div>
+
+    <div class="video-wrap" id="videoWrap">
+      <div class="video-placeholder" id="videoPlaceholder">還沒有載入影片<br>先在上方輸入歌名或貼上連結</div>
+      <div id="ytPlayerDiv"></div>
+    </div>
+
+    <div class="transport">
+      <button class="btn secondary small" id="playBtn">▶ 播放</button>
+      <button class="btn secondary small" id="pauseBtn">⏸ 暫停</button>
+      <button class="btn secondary small" id="saveSongBtn">＋ 加入歌單</button>
+    </div>
+
+    <div class="card" id="abCard">
+      <div class="collapse-head" id="abHead">
+        <h3 style="margin:0;">A-B 反覆練習<span id="abStateHint" class="ab-hint"></span></h3>
+        <span class="chev" id="abChev">▸</span>
+      </div>
+      <div id="abBody" style="display:none;">
+        <div class="ab-row">
+          <div style="flex:1;">
+            <label>起點(秒)</label>
+            <input type="number" id="abStart" min="0" inputmode="numeric" placeholder="0">
+          </div>
+          <div style="flex:1;">
+            <label>終點(秒)</label>
+            <input type="number" id="abEnd" min="0" inputmode="numeric" placeholder="15">
+          </div>
+          <button class="btn small" id="abSetBtn" style="flex:0 0 auto;" title="以目前播放位置設定">用現在</button>
+          <button class="btn small" id="abToggle" style="flex:0 0 auto;">開始</button>
+        </div>
+        <div class="speed-row">
+          <span class="vol-label">速度</span>
+          <button class="speed-btn" data-speed="0.5">0.5×</button>
+          <button class="speed-btn" data-speed="0.75">0.75×</button>
+          <button class="speed-btn active" data-speed="1">1×</button>
+        </div>
+        <p style="font-size:11px;color:var(--text-dim);margin:8px 0 0;">
+          建議一次只練5~15秒的一句:聽2~3遍 → 跟著唱幾遍看音準 → 唱不順就放慢速度 → 熟了再加長範圍。播放到句子開頭按「用現在」設起點,句尾再按一次設終點。
+        </p>
+      </div>
+    </div>
+
+    <div class="pitch-panel">
+      <h3 style="margin:0 0 10px;text-transform:uppercase;letter-spacing:.08em;font-size:13px;color:var(--text-dim);">即時音準</h3>
+      <div class="pitch-readout">
+        <div class="pitch-note mono" id="pitchNote">--</div>
+        <div class="pitch-hz" id="pitchHz">-- Hz</div>
+      </div>
+      <div class="vol-row">
+        <span class="vol-label">音量</span>
+        <div class="vol-track"><div class="vol-fill" id="volFill"></div></div>
+      </div>
+      <canvas id="pitchCanvas"></canvas>
+      <div class="sing-stats mono">
+        <span>持續 <b id="sustainNow">0.0</b>s</span>
+        <span>穩定 ±<b id="steadyNow">--</b>¢</span>
+        <span>本次最長 <b id="sustainBest">0.0</b>s</span>
+      </div>
+      <div class="mic-status">
+        <div class="dot" id="micDot"></div>
+        <span id="micStatusText">麥克風未啟動</span>
+      </div>
+      <div class="transport">
+        <button class="btn small" id="micToggleBtn">🎤 開始收音</button>
+        <button class="btn secondary small" id="recToggleBtn" disabled>● 錄音</button>
+      </div>
+      <div id="recPlaybackWrap" style="margin-top:10px;display:none;">
+        <audio id="recAudio" controls style="width:100%;"></audio>
+      </div>
+    </div>
+
+    <div class="card" id="lyricsCard" style="display:none;">
+      <h3>歌詞</h3>
+      <textarea id="songLyrics" placeholder="貼上歌詞,練習時邊看邊唱..."></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn secondary small" id="saveLyricsBtn">儲存歌詞</button>
+      </div>
+    </div>
+
+    <div class="card" id="notesCard" style="display:none;">
+      <h3>這首歌的筆記</h3>
+      <textarea id="songNotes" placeholder="例如:副歌那句氣不夠、第二段容易走音..."></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn secondary small" id="saveNotesBtn">儲存筆記</button>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- PLAYLIST VIEW -->
+  <section class="view" id="view-playlist">
+    <div class="card">
+      <h3>我的歌單</h3>
+      <div id="playlistList"><div class="empty">還沒有加入任何歌曲</div></div>
+      <p style="font-size:11.5px;color:var(--text-dim);margin:12px 0 0;border-top:1px solid var(--line);padding-top:10px;">
+        🔒 歌單只儲存在你這台裝置的瀏覽器裡,重新整理後仍會保留;其他人打開這個網站看不到你的歌單。
+      </p>
+    </div>
+  </section>
+
+  <!-- HISTORY VIEW -->
+  <section class="view" id="view-history">
+    <div class="card" id="feedbackCard" style="display:none;">
+      <h3>最近一次練習回饋</h3>
+      <div id="feedbackBody" style="font-size:13.5px;line-height:1.7;"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn secondary small" id="copySummaryBtn">複製練習摘要(可貼給AI深入分析)</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>音域統計</h3>
+      <div class="range-stat"><span>最低音</span><span class="val mono" id="rangeMin">--</span></div>
+      <div class="range-stat"><span>最高音</span><span class="val mono" id="rangeMax">--</span></div>
+      <div class="range-stat"><span>累積練習次數</span><span class="val mono" id="rangeCount">0</span></div>
+    </div>
+    <div class="card">
+      <h3>練習紀錄</h3>
+      <div id="historyList"><div class="empty">還沒有練習紀錄</div></div>
+    </div>
+  </section>
+
+  <!-- GUIDE VIEW -->
+  <section class="view" id="view-guide">
+    <div class="card">
+      <h3>A-B 反覆練習怎麼用最有效</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        一次只練<b style="color:var(--text);">一句(約5~15秒)</b>,不要整段副歌一起練——肌肉記憶是一句一句建立的。流程:①先聽2~3遍不要唱,用耳朵記旋律 → ②跟著唱3~5遍,邊看音準線 → ③唱不順就降到0.75×或0.5×速度,<b style="color:var(--text);">慢而準勝過快而亂</b> → ④這句穩了,再把終點往後拉,把句子接起來。
+      </p>
+    </div>
+    <div class="card">
+      <h3>即時音準(音名與音分)</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        大字顯示你目前唱到的音,例如 <span class="mono" style="color:var(--amber);">A4</span> 就是中央A。旁邊的「¢」是音分:100音分等於一個半音,數字代表你和最近的標準音之間的距離。<b style="color:var(--text);">+代表偏高、−代表偏低</b>;能穩定保持在±20¢以內,聽起來就已經是準的。下方的曲線圖畫出你音高的走勢,唱旋律時可以看出自己是「滑」上去還是「跳」上去。<br><br>
+        🎧 <b style="color:var(--text);">請戴耳機使用:</b>如果用喇叭外放伴奏,麥克風會把歌曲和你的聲音混在一起,音準偵測就不準了。戴上耳機,麥克風聽到的就只有你。
+      </p>
+    </div>
+    <div class="card">
+      <h3>音量</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        即時顯示你唱歌的音量大小。它的重點不是「越大聲越好」,而是<b style="color:var(--text);">穩不穩</b>:唱長音時如果音量條在抖動,通常代表氣息不穩定。練習時試著讓長音的音量保持平穩,或刻意做漸強漸弱,看看自己能不能控制它。
+      </p>
+    </div>
+    <div class="card">
+      <h3>穩定度(±¢)</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        當你持續唱同一個音時,這個數字顯示你平均搖晃了幾音分。<b style="color:var(--text);">±10¢以內</b>算是很穩定的長音;±10~25¢還可以,但有進步空間;超過±25¢表示音有明顯晃動,建議放慢速度、用單音長音來練。(註:刻意的抖音vibrato也會讓數字變大,這是正常的。)
+      </p>
+    </div>
+    <div class="card">
+      <h3>持續音(秒)</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        你連續唱同一個音的時間長度,直接反映<b style="color:var(--text);">呼吸控制</b>能力。一般人約可持續8~12秒,經過練習可以到15~20秒以上。「本次最長」會記進練習紀錄,可以觀察自己有沒有慢慢進步。練習方式:深吸一口氣,用最小、最穩定的音量唱一個舒服的音,越久越好。
+      </p>
+    </div>
+    <div class="card">
+      <h3>音域(最低音~最高音)</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        「紀錄」頁的音域統計是你所有練習中唱到過的最低與最高音。一般未受訓練的人音域約1.5~2個八度,選歌時如果歌曲的音域超出你的範圍,可以考慮升降Key或換歌。<b style="color:var(--text);">注意:</b>不要為了衝紀錄硬飆高音,喉嚨痛就要休息。
+      </p>
+    </div>
+    <div class="card">
+      <h3>練習回饋是怎麼來的?</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        每次練習結束後,「紀錄」頁會根據你的數據自動產生建議。這些建議是依照聲樂練習的常見標準在你的裝置上直接算出來的,不會把資料傳給任何伺服器。想要更深入的分析,可以按「複製練習摘要」,把數據貼給Claude等AI助手,請它當你的歌唱教練。
+      </p>
+    </div>
+  </section>
+
+  <!-- SETTINGS VIEW -->
+  <section class="view" id="view-settings">
+    <div class="card">
+      <h3>麥克風靈敏度</h3>
+      <div class="slider-row">
+        <label><span>安靜環境 ⟷ 吵雜環境</span><span id="sensVal" class="mono">中</span></label>
+        <input type="range" id="sensSlider" min="1" max="5" value="3">
+      </div>
+      <p style="font-size:12px;color:var(--text-dim);">
+        環境比較吵時可以調高一點,避免背景雜音被誤判成音高。
+      </p>
+    </div>
+    <div class="card">
+      <h3>安裝成手機App</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        <strong>iPhone(Safari):</strong>點下方「分享」按鈕 → 「加入主畫面」<br>
+        <strong>Android(Chrome):</strong>點右上「⋮」選單 → 「安裝應用程式」(或「加到主畫面」)<br><br>
+        安裝後會有自己的圖示、全螢幕開啟,用起來就像一般App,資料也和瀏覽器版共通。
+      </p>
+    </div>
+    <div class="card">
+      <h3>關於隱私與資料</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.6;">
+        麥克風音高偵測完全在你的裝置本機運算,不會把聲音傳到任何伺服器。錄音僅暫存於本次瀏覽器分頁中,關閉分頁後就會清除。<br><br>
+        <strong style="color:var(--amber);">你的資料只存在你自己的裝置上。</strong>歌單、歌詞、筆記與練習紀錄儲存在這台裝置的這個瀏覽器裡,沒有伺服器、沒有帳號、沒有共用資料庫——其他使用這個網站的人完全看不到你的內容,網站作者也看不到。<br><br>
+        重新整理或下次再來,資料都還在;但換裝置、換瀏覽器、使用無痕模式或清除瀏覽資料後就會消失,也無法在裝置之間同步。<br><br>
+        影片由YouTube提供,播放時適用YouTube自身的條款與隱私政策。
+      </p>
+    </div>
+    <div class="card">
+      <h3>清除資料</h3>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px;">
+        會刪除這個瀏覽器裡儲存的歌單、歌詞、筆記、練習紀錄與音域統計,無法復原。
+      </p>
+      <button class="btn secondary small" id="clearDataBtn">清除所有資料</button>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------- Storage helpers (localStorage) ----------------
+// This site is self-hosted (not inside a sandbox), so localStorage works:
+// data persists across reloads on this device/browser. No account needed.
+const LS_PREFIX = 'singpractice:';
+
+function storeGet(key, fallback){
+  try{
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    return raw !== null ? JSON.parse(raw) : fallback;
+  }catch(e){ return fallback; }
+}
+function storeSet(key, value){
+  try{ localStorage.setItem(LS_PREFIX + key, JSON.stringify(value)); }
+  catch(e){ toast('儲存失敗(儲存空間可能已滿)'); }
+}
+function storeDelete(key){
+  try{ localStorage.removeItem(LS_PREFIX + key); }catch(e){}
+}
+function storeListKeys(prefix){
+  const keys = [];
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith(LS_PREFIX + prefix)) keys.push(k.slice(LS_PREFIX.length));
+    }
+  }catch(e){}
+  return keys;
+}
+function clearAllData(){
+  try{
+    const toRemove = [];
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith(LS_PREFIX)) toRemove.push(k);
+    }
+    toRemove.forEach(k=>localStorage.removeItem(k));
+  }catch(e){}
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+
+// ---------------- Settings & first-run ----------------
+function getSettings(){ return storeGet('settings', {sensitivity:3, hideHowTo:false}); }
+function initFromSettings(){
+  const s = getSettings();
+  document.getElementById('sensSlider').value = s.sensitivity || 3;
+  updateSensLabel(s.sensitivity || 3);
+  if(s.hideHowTo) document.getElementById('howToCard').style.display = 'none';
+  setAbOpen(!!s.abOpen, false); // collapsed by default, remembers user's choice
+}
+document.getElementById('hideHowToBtn').addEventListener('click', ()=>{
+  document.getElementById('howToCard').style.display = 'none';
+  const s = getSettings(); s.hideHowTo = true; storeSet('settings', s);
+});
+
+// ---------------- Tabs ----------------
+document.querySelectorAll('.tab').forEach(tabEl=>{
+  tabEl.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    tabEl.classList.add('active');
+    document.getElementById('view-' + tabEl.dataset.tab).classList.add('active');
+    if(tabEl.dataset.tab === 'playlist') renderPlaylist();
+    if(tabEl.dataset.tab === 'history'){ renderHistory(); renderFeedback(); }
+  });
+});
+
+// ---------------- YouTube (official IFrame API) ----------------
+let currentVideoId = null;
+let ytPlayer = null;
+let ytApiReady = false;
+let pendingVideoId = null;
+
+// load the official API script
+(function(){
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+})();
+window.onYouTubeIframeAPIReady = function(){
+  ytApiReady = true;
+  if(pendingVideoId){ createPlayer(pendingVideoId); pendingVideoId = null; }
+};
+
+function extractVideoId(input){
+  input = input.trim();
+  const patterns = [
+    /(?:youtube\.com\/watch\?[^#]*v=)([\w-]{11})/,
+    /(?:youtu\.be\/)([\w-]{11})/,
+    /(?:youtube\.com\/embed\/)([\w-]{11})/,
+    /(?:youtube\.com\/shorts\/)([\w-]{11})/,
+    /(?:youtube\.com\/live\/)([\w-]{11})/,
+    /^([\w-]{11})$/
+  ];
+  for(const p of patterns){
+    const m = input.match(p);
+    if(m) return m[1];
+  }
+  return null;
+}
+
+document.getElementById('goBtn').addEventListener('click', handleGo);
+document.getElementById('songNameInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){ e.target.blur(); handleGo(); }
+});
+
+function handleGo(){
+  const value = document.getElementById('songNameInput').value.trim();
+  if(!value){ toast('請輸入歌名或貼上連結'); return; }
+  const id = extractVideoId(value);
+  if(id){
+    // keep whatever name was typed before pasting the link, if any
+    if(/^https?:|^[\w-]{11}$/.test(value)) document.getElementById('songNameInput').value = lastTypedName || '';
+    loadVideo(id);
+  } else {
+    lastTypedName = value;
+    window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(value), '_blank');
+    toast('已開啟YouTube搜尋,複製影片連結後貼回這裡再按「前往」');
+  }
+}
+let lastTypedName = '';
+
+function loadVideo(id){
+  currentVideoId = id;
+  document.getElementById('videoPlaceholder').style.display = 'none';
+  if(!ytApiReady){ pendingVideoId = id; return; }
+  createPlayer(id);
+}
+
+function createPlayer(id){
+  stopAbLoop();
+  resetSpeedUI();
+  if(ytPlayer){
+    ytPlayer.loadVideoById(id);
+  } else {
+    ytPlayer = new YT.Player('ytPlayerDiv', {
+      videoId: id,
+      playerVars: { playsinline:1, rel:0 },
+      events: {
+        onReady: ()=>{ toast('影片已載入,按播放開始'); },
+        onError: ()=>{ toast('這部影片無法播放(可能不允許嵌入),請換一部試試'); }
+      }
+    });
+  }
+  document.getElementById('notesCard').style.display = 'block';
+  document.getElementById('lyricsCard').style.display = 'block';
+  loadNotesFor(id);
+  loadLyricsFor(id);
+  // auto-fill saved name if this song is in the playlist
+  const saved = storeGet('playlist:' + id, null);
+  if(saved && saved.name && !document.getElementById('songNameInput').value.trim()){
+    document.getElementById('songNameInput').value = saved.name;
+  }
+}
+
+document.getElementById('playBtn').addEventListener('click', ()=>{ if(ytPlayer) ytPlayer.playVideo(); });
+document.getElementById('pauseBtn').addEventListener('click', ()=>{ if(ytPlayer) ytPlayer.pauseVideo(); });
+
+// ---------------- A-B loop (precise, via player time polling) ----------------
+let abActive = false;
+let abPollTimer = null;
+
+document.getElementById('abSetBtn').addEventListener('click', ()=>{
+  if(!ytPlayer || !currentVideoId){ toast('請先載入影片'); return; }
+  const t = Math.floor(ytPlayer.getCurrentTime());
+  const startEl = document.getElementById('abStart');
+  const endEl = document.getElementById('abEnd');
+  if(startEl.value === '' || (endEl.value !== '' && parseFloat(endEl.value) <= parseFloat(startEl.value))){
+    startEl.value = t; endEl.value = '';
+    toast('起點已設為 ' + t + ' 秒,播到結尾再按一次');
+  } else {
+    endEl.value = t;
+    toast('終點已設為 ' + t + ' 秒,按「開始」反覆練習(再按會更新終點)');
+  }
+});
+
+document.getElementById('abToggle').addEventListener('click', ()=>{
+  if(!ytPlayer || !currentVideoId){ toast('請先載入影片'); return; }
+  if(!abActive){
+    const start = parseFloat(document.getElementById('abStart').value) || 0;
+    const end = parseFloat(document.getElementById('abEnd').value);
+    if(isNaN(end) || end <= start){ toast('請設定有效的起點與終點(終點要大於起點)'); return; }
+    abActive = true;
+    updateAbHint();
+    document.getElementById('abToggle').textContent = '停止';
+    ytPlayer.seekTo(start, true);
+    ytPlayer.playVideo();
+    abPollTimer = setInterval(()=>{
+      if(!abActive || !ytPlayer) return;
+      // only loop while actually playing — paused video stays paused
+      if(ytPlayer.getPlayerState() === YT.PlayerState.PLAYING && ytPlayer.getCurrentTime() >= end){
+        ytPlayer.seekTo(start, true);
+      }
+    }, 200);
+  } else {
+    stopAbLoop();
+  }
+});
+function stopAbLoop(){
+  abActive = false;
+  updateAbHint();
+  document.getElementById('abToggle').textContent = '開始';
+  if(abPollTimer){ clearInterval(abPollTimer); abPollTimer = null; }
+}
+
+// ---------------- A-B card collapse ----------------
+function setAbOpen(open, persist){
+  document.getElementById('abBody').style.display = open ? 'block' : 'none';
+  document.getElementById('abChev').classList.toggle('open', open);
+  if(persist){
+    const s = getSettings(); s.abOpen = open; storeSet('settings', s);
+  }
+}
+document.getElementById('abHead').addEventListener('click', ()=>{
+  const isOpen = document.getElementById('abBody').style.display !== 'none';
+  setAbOpen(!isOpen, true);
+});
+function updateAbHint(){
+  document.getElementById('abStateHint').textContent = abActive ? '(循環中)' : '';
+}
+
+// ---------------- Playback speed ----------------
+document.querySelectorAll('.speed-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    if(!ytPlayer || !currentVideoId){ toast('請先載入影片'); return; }
+    const rate = parseFloat(btn.dataset.speed);
+    ytPlayer.setPlaybackRate(rate);
+    document.querySelectorAll('.speed-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    toast(rate === 1 ? '恢復正常速度' : '速度調為 ' + rate + '×,慢慢練最有效');
+  });
+});
+function resetSpeedUI(){
+  document.querySelectorAll('.speed-btn').forEach(b=>
+    b.classList.toggle('active', b.dataset.speed === '1'));
+}
+
+// ---------------- Pitch detection (autocorrelation) ----------------
+let audioCtx = null, analyser = null, micStream = null, micActive = false;
+let mediaRecorder = null, recChunks = [], isRecording = false;
+let pitchHistory = [];
+let sessionPitches = [];
+let sessionCents = []; // |cents| deviation samples, for session steadiness feedback
+const canvas = document.getElementById('pitchCanvas');
+const ctx2d = canvas.getContext('2d');
+function resizeCanvas(){
+  canvas.width = canvas.clientWidth * 2;
+  canvas.height = canvas.clientHeight * 2;
+}
+window.addEventListener('resize', resizeCanvas);
+
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function freqToNote(freq){
+  if(!freq || freq <= 0) return null;
+  const midi = 69 + 12 * Math.log2(freq/440);
+  const rounded = Math.round(midi);
+  const cents = Math.round((midi - rounded)*100);
+  const name = NOTE_NAMES[((rounded%12)+12)%12];
+  const octave = Math.floor(rounded/12) - 1;
+  return {name: name+octave, cents, midi:rounded};
+}
+
+// sensitivity slider (1..5) maps to a noise gate threshold:
+// noisier environments need a HIGHER threshold so background noise is ignored
+function currentRmsThreshold(){
+  const v = parseInt(document.getElementById('sensSlider').value || '3');
+  return {1:0.004, 2:0.007, 3:0.01, 4:0.02, 5:0.04}[v] || 0.01;
+}
+
+let lastRms = 0; // updated on every analysis frame, drives the volume meter
+
+function autoCorrelate(buf, sampleRate){
+  const SIZE = buf.length;
+  let rms = 0;
+  for(let i=0;i<SIZE;i++){ rms += buf[i]*buf[i]; }
+  rms = Math.sqrt(rms/SIZE);
+  lastRms = rms;
+  if(rms < currentRmsThreshold()) return -1; // below noise gate
+
+  let r1=0, r2=SIZE-1, thres=0.2;
+  for(let i=0; i<SIZE/2; i++){ if(Math.abs(buf[i]) < thres){ r1=i; break; } }
+  for(let i=1; i<SIZE/2; i++){ if(Math.abs(buf[SIZE-i]) < thres){ r2=SIZE-i; break; } }
+  const trimmed = buf.slice(r1, r2);
+  const newSize = trimmed.length;
+  const c = new Array(newSize).fill(0);
+  for(let i=0;i<newSize;i++){
+    for(let j=0;j<newSize-i;j++){
+      c[i] += trimmed[j]*trimmed[j+i];
+    }
+  }
+  let d=0; while(c[d] > c[d+1]) d++;
+  let maxval=-1, maxpos=-1;
+  for(let i=d;i<newSize;i++){
+    if(c[i] > maxval){ maxval = c[i]; maxpos = i; }
+  }
+  let T0 = maxpos;
+  if(T0 <= 0) return -1;
+  return sampleRate / T0;
+}
+
+async function startMic(){
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({audio:{
+      echoCancellation:true, noiseSuppression:true
+    }});
+  }catch(e){
+    if(e && (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError')){
+      toast('麥克風權限被拒絕。請到瀏覽器的網站設定,將本站的麥克風改為「允許」後再試');
+    } else if(e && (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError')){
+      toast('找不到麥克風裝置,請確認裝置有可用的麥克風');
+    } else {
+      toast('無法啟動麥克風:' + (e && e.name ? e.name : '未知錯誤'));
+    }
+    return;
+  }
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+  const source = audioCtx.createMediaStreamSource(micStream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  source.connect(analyser);
+  micActive = true;
+  // gentle one-time reminder: speakers + mic = polluted pitch readings
+  if(ytPlayer && typeof ytPlayer.getPlayerState === 'function' &&
+     ytPlayer.getPlayerState() === YT.PlayerState.PLAYING && !startMic._warned){
+    startMic._warned = true;
+    toast('🎧 小提醒:戴耳機唱,音準偵測才不會被伴奏干擾');
+  }
+  document.getElementById('micDot').classList.add('live');
+  document.getElementById('micStatusText').textContent = '收音中';
+  document.getElementById('micToggleBtn').textContent = '■ 停止收音';
+  document.getElementById('recToggleBtn').disabled = false;
+  resizeCanvas();
+  drawLoop();
+}
+function stopMic(){
+  micActive = false;
+  if(isRecording && mediaRecorder){ mediaRecorder.stop(); isRecording = false; }
+  if(audioCtx) audioCtx.close();
+  if(micStream) micStream.getTracks().forEach(t=>t.stop());
+  document.getElementById('micDot').classList.remove('live','rec');
+  document.getElementById('micStatusText').textContent = '麥克風未啟動';
+  document.getElementById('micToggleBtn').textContent = '🎤 開始收音';
+  document.getElementById('recToggleBtn').disabled = true;
+  document.getElementById('recToggleBtn').textContent = '● 錄音';
+  endSessionAndSave();
+}
+document.getElementById('micToggleBtn').addEventListener('click', ()=>{
+  if(micActive){ stopMic(); } else { startMic(); }
+});
+
+// sustained-note tracking: how long the same note is held, how steady it is
+let heldMidi = null, heldStart = 0, heldCents = [], bestSustain = 0;
+let silenceFrames = 0;
+
+function updateSingStats(noteInfo){
+  const now = performance.now();
+  if(noteInfo){
+    silenceFrames = 0;
+    if(noteInfo.midi === heldMidi){
+      heldCents.push(Math.abs(noteInfo.cents));
+      const dur = (now - heldStart)/1000;
+      if(dur > bestSustain){
+        bestSustain = dur;
+        document.getElementById('sustainBest').textContent = bestSustain.toFixed(1);
+      }
+      document.getElementById('sustainNow').textContent = dur.toFixed(1);
+      const avg = heldCents.reduce((a,b)=>a+b,0)/heldCents.length;
+      document.getElementById('steadyNow').textContent = Math.round(avg);
+    } else {
+      heldMidi = noteInfo.midi;
+      heldStart = now;
+      heldCents = [Math.abs(noteInfo.cents)];
+      document.getElementById('sustainNow').textContent = '0.0';
+    }
+  } else {
+    // allow tiny gaps (a few frames) before ending the held note,
+    // so brief detection dropouts don't reset the sustain timer
+    silenceFrames++;
+    if(silenceFrames > 12){
+      heldMidi = null;
+      document.getElementById('sustainNow').textContent = '0.0';
+      document.getElementById('steadyNow').textContent = '--';
+    }
+  }
+}
+
+function drawLoop(){
+  if(!micActive) return;
+  const buf = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(buf);
+  const freq = autoCorrelate(buf, audioCtx.sampleRate);
+
+  // volume meter: map rms (~0 to ~0.25) to bar width
+  const volPct = Math.min(100, Math.round(lastRms * 400));
+  document.getElementById('volFill').style.width = volPct + '%';
+
+  let noteInfo = null;
+  if(freq > 60 && freq < 1200){
+    noteInfo = freqToNote(freq);
+    document.getElementById('pitchNote').textContent = noteInfo.name;
+    document.getElementById('pitchHz').textContent = freq.toFixed(1) + ' Hz  ' +
+      (noteInfo.cents>=0?'+':'') + noteInfo.cents + '¢';
+    sessionPitches.push(freq);
+    sessionCents.push(Math.abs(noteInfo.cents));
+  } else {
+    document.getElementById('pitchNote').textContent = '--';
+    document.getElementById('pitchHz').textContent = '-- Hz';
+  }
+  updateSingStats(noteInfo);
+  pitchHistory.push(freq > 60 && freq < 1200 ? freq : null);
+  if(pitchHistory.length > 220) pitchHistory.shift();
+  renderPitchCanvas();
+  requestAnimationFrame(drawLoop);
+}
+
+function renderPitchCanvas(){
+  const w = canvas.width, h = canvas.height;
+  ctx2d.clearRect(0,0,w,h);
+  ctx2d.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--line');
+  ctx2d.lineWidth = 1;
+  for(let i=1;i<4;i++){
+    const y = h*i/4;
+    ctx2d.beginPath();
+    ctx2d.moveTo(0,y); ctx2d.lineTo(w,y);
+    ctx2d.stroke();
+  }
+  const minF = 80, maxF = 1000;
+  function yFor(f){
+    const t = (Math.log(f)-Math.log(minF)) / (Math.log(maxF)-Math.log(minF));
+    return h - t*h;
+  }
+  ctx2d.strokeStyle = '#e8a33d';
+  ctx2d.lineWidth = 4;
+  ctx2d.beginPath();
+  let started = false;
+  const step = w / pitchHistory.length;
+  pitchHistory.forEach((f, i)=>{
+    const x = i*step;
+    if(f){
+      const y = yFor(Math.max(minF, Math.min(maxF,f)));
+      if(!started){ ctx2d.moveTo(x,y); started = true; }
+      else ctx2d.lineTo(x,y);
+    } else {
+      started = false;
+    }
+  });
+  ctx2d.stroke();
+}
+
+// ---------------- Recording ----------------
+document.getElementById('recToggleBtn').addEventListener('click', ()=>{
+  if(!isRecording){
+    if(!micStream){ toast('請先開啟麥克風'); return; }
+    recChunks = [];
+    try{ mediaRecorder = new MediaRecorder(micStream); }
+    catch(e){ toast('這個瀏覽器不支援錄音'); return; }
+    mediaRecorder.ondataavailable = e => recChunks.push(e.data);
+    mediaRecorder.onstop = ()=>{
+      const blob = new Blob(recChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+      const audioEl = document.getElementById('recAudio');
+      if(audioEl.src) URL.revokeObjectURL(audioEl.src); // free previous recording
+      audioEl.src = URL.createObjectURL(blob);
+      document.getElementById('recPlaybackWrap').style.display = 'block';
+      toast('錄音完成(僅暫存於本次分頁,不會上傳)');
+    };
+    mediaRecorder.start();
+    isRecording = true;
+    document.getElementById('micDot').classList.add('rec');
+    document.getElementById('recToggleBtn').textContent = '■ 停止錄音';
+  } else {
+    mediaRecorder.stop();
+    isRecording = false;
+    document.getElementById('micDot').classList.remove('rec');
+    document.getElementById('recToggleBtn').textContent = '● 錄音';
+  }
+});
+
+// ---------------- Playlist ----------------
+document.getElementById('saveSongBtn').addEventListener('click', ()=>{
+  if(!currentVideoId){ toast('請先載入一首歌'); return; }
+  const name = document.getElementById('songNameInput').value.trim() || '未命名歌曲';
+  storeSet('playlist:' + currentVideoId, {name, videoId: currentVideoId, addedAt: Date.now()});
+  toast('已加入歌單:' + name);
+});
+
+function renderPlaylist(){
+  const keys = storeListKeys('playlist:');
+  const container = document.getElementById('playlistList');
+  if(!keys.length){ container.innerHTML = '<div class="empty">還沒有加入任何歌曲</div>'; return; }
+  const items = keys.map(k => storeGet(k, null)).filter(Boolean)
+    .sort((a,b)=>b.addedAt-a.addedAt);
+  let html = '';
+  for(const item of items){
+    html += `<div class="list-item">
+      <div>
+        <div class="name">${escapeHtml(item.name)}</div>
+        <div class="meta">${new Date(item.addedAt).toLocaleDateString()}</div>
+      </div>
+      <div>
+        <button class="icon-btn" data-action="play" data-vid="${item.videoId}">播放</button>
+        <button class="icon-btn" data-action="remove" data-vid="${item.videoId}">刪除</button>
+      </div>
+    </div>`;
+  }
+  container.innerHTML = html || '<div class="empty">還沒有加入任何歌曲</div>';
+}
+// event delegation: names never pass through HTML attributes, so any
+// characters (apostrophes, quotes, emoji) are safe
+document.getElementById('playlistList').addEventListener('click', (e)=>{
+  const btn = e.target.closest('button[data-action]');
+  if(!btn) return;
+  const vid = btn.dataset.vid;
+  if(btn.dataset.action === 'play'){
+    const item = storeGet('playlist:' + vid, null);
+    document.querySelector('.tab[data-tab="practice"]').click();
+    document.getElementById('songNameInput').value = item ? item.name : '';
+    loadVideo(vid);
+    toast('已載入「' + (item ? item.name : vid) + '」');
+  } else if(btn.dataset.action === 'remove'){
+    storeDelete('playlist:' + vid);
+    renderPlaylist();
+    toast('已刪除');
+  }
+});
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------------- Notes & Lyrics ----------------
+function loadNotesFor(videoId){
+  document.getElementById('songNotes').value = storeGet('notes:' + videoId, '');
+}
+document.getElementById('saveNotesBtn').addEventListener('click', ()=>{
+  if(!currentVideoId) return;
+  storeSet('notes:' + currentVideoId, document.getElementById('songNotes').value);
+  toast('筆記已儲存');
+});
+function loadLyricsFor(videoId){
+  document.getElementById('songLyrics').value = storeGet('lyrics:' + videoId, '');
+}
+document.getElementById('saveLyricsBtn').addEventListener('click', ()=>{
+  if(!currentVideoId) return;
+  storeSet('lyrics:' + currentVideoId, document.getElementById('songLyrics').value);
+  toast('歌詞已儲存');
+});
+
+// ---------------- History & vocal range ----------------
+function endSessionAndSave(){
+  if(sessionPitches.length < 5){ sessionPitches = []; sessionCents = []; bestSustain = 0; return; }
+  const min = Math.min(...sessionPitches);
+  const max = Math.max(...sessionPitches);
+  const steady = sessionCents.length
+    ? Math.round(sessionCents.reduce((a,b)=>a+b,0)/sessionCents.length)
+    : null;
+  const entry = {
+    song: document.getElementById('songNameInput').value.trim() || '未命名歌曲',
+    videoId: currentVideoId,
+    date: Date.now(),
+    min: Math.round(min), max: Math.round(max),
+    sustain: Math.round(bestSustain*10)/10,
+    steady: steady
+  };
+  storeSet('history:' + Date.now(), entry);
+  storeSet('lastfeedback', entry);
+
+  const range = storeGet('vocalrange', {min:null, max:null, count:0});
+  range.min = range.min === null ? min : Math.min(range.min, min);
+  range.max = range.max === null ? max : Math.max(range.max, max);
+  range.count = (range.count||0) + 1;
+  storeSet('vocalrange', range);
+  sessionPitches = [];
+  sessionCents = [];
+  bestSustain = 0;
+  document.getElementById('sustainBest').textContent = '0.0';
+}
+
+// ---------------- Rule-based coaching feedback ----------------
+// Computed entirely on-device from the session's numbers — no server, no AI
+// call. Thresholds follow common vocal-practice guidelines (see 說明 tab).
+function semitoneSpan(minHz, maxHz){
+  if(!minHz || !maxHz || maxHz <= minHz) return 0;
+  return Math.round(12 * Math.log2(maxHz/minHz));
+}
+function buildFeedback(e){
+  const tips = [];
+  const noteMin = freqToNote(e.min)?.name || '--';
+  const noteMax = freqToNote(e.max)?.name || '--';
+  const span = semitoneSpan(e.min, e.max);
+
+  // steadiness
+  if(e.steady !== null && e.steady !== undefined){
+    if(e.steady <= 10){
+      tips.push('🎯 音準穩定度平均 ±' + e.steady + '¢,非常穩!可以開始挑戰更快的樂句或更大的音程跳動。');
+    } else if(e.steady <= 25){
+      tips.push('🎯 音準穩定度平均 ±' + e.steady + '¢,大致準確,長音尾端容易鬆掉——試著在每個長音的「最後兩拍」特別留意支撐。');
+    } else {
+      tips.push('🎯 音準穩定度平均 ±' + e.steady + '¢,晃動偏大。建議放慢速度,用單音長音練習:唱一個舒服的音,盯著音準線讓它保持水平5秒以上。');
+    }
+  }
+  // sustain
+  if(e.sustain){
+    if(e.sustain >= 15){
+      tips.push('🌬️ 最長持續音 ' + e.sustain + ' 秒,呼吸控制很好!可嘗試在長音上加入漸強漸弱。');
+    } else if(e.sustain >= 8){
+      tips.push('🌬️ 最長持續音 ' + e.sustain + ' 秒,屬正常範圍。想加強:每天做3次「深吸→用最小音量唱到沒氣」的練習,目標把秒數慢慢推上15秒。');
+    } else {
+      tips.push('🌬️ 最長持續音 ' + e.sustain + ' 秒,偏短——多半是氣一次放太快。試試看用「嘶——」聲先練呼氣控制,再套回唱歌。');
+    }
+  }
+  // range used this session
+  if(span > 0){
+    tips.push('🎹 這次用到的音域:' + noteMin + ' ~ ' + noteMax + '(約 ' + span + ' 個半音)。' +
+      (span >= 17 ? '音域跨度大,注意換聲區的銜接是否平順。'
+                  : '如果歌裡有唱不上去的段落,可以考慮降Key練習,先把音準與穩定度顧好。'));
+  }
+  return tips;
+}
+
+function renderFeedback(){
+  const e = storeGet('lastfeedback', null);
+  const card = document.getElementById('feedbackCard');
+  if(!e){ card.style.display = 'none'; return; }
+  const tips = buildFeedback(e);
+  if(!tips.length){ card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  document.getElementById('feedbackBody').innerHTML =
+    '<div style="color:var(--text-dim);font-size:12px;margin-bottom:8px;">' +
+    escapeHtml(e.song) + ' · ' + new Date(e.date).toLocaleString() + '</div>' +
+    tips.map(t=>'<p style="margin:0 0 10px;">' + escapeHtml(t) + '</p>').join('');
+}
+
+document.getElementById('copySummaryBtn').addEventListener('click', ()=>{
+  const e = storeGet('lastfeedback', null);
+  if(!e){ toast('還沒有練習資料'); return; }
+  const span = semitoneSpan(e.min, e.max);
+  const summary =
+`我在練唱,以下是我這次練習的數據,請你以歌唱教練的角度給我具體建議:
+- 歌曲:${e.song}
+- 使用音域:${freqToNote(e.min)?.name||'--'} ~ ${freqToNote(e.max)?.name||'--'}(約${span}個半音)
+- 音準穩定度:平均偏差 ±${e.steady ?? '--'} 音分
+- 最長持續音:${e.sustain || '--'} 秒`;
+  navigator.clipboard.writeText(summary).then(
+    ()=>toast('已複製!貼到Claude等AI助手就能得到深入分析'),
+    ()=>toast('複製失敗,請手動選取文字')
+  );
+});
+setInterval(()=>{ if(sessionPitches.length>200) endSessionAndSave(); }, 60000);
+
+function renderHistory(){
+  const range = storeGet('vocalrange', {min:null,max:null,count:0});
+  document.getElementById('rangeMin').textContent = range.min ? freqToNote(range.min).name : '--';
+  document.getElementById('rangeMax').textContent = range.max ? freqToNote(range.max).name : '--';
+  document.getElementById('rangeCount').textContent = range.count || 0;
+
+  const keys = storeListKeys('history:');
+  const container = document.getElementById('historyList');
+  if(!keys.length){ container.innerHTML = '<div class="empty">還沒有練習紀錄</div>'; return; }
+  const entries = keys.map(k => storeGet(k, null)).filter(Boolean)
+    .sort((a,b)=>b.date-a.date);
+  let html = '';
+  for(const e of entries.slice(0,30)){
+    html += `<div class="list-item">
+      <div>
+        <div class="name">${escapeHtml(e.song)}</div>
+        <div class="meta">${new Date(e.date).toLocaleString()} · 音域 ${freqToNote(e.min)?.name||'--'} ~ ${freqToNote(e.max)?.name||'--'}${e.sustain ? ' · 最長持續音 '+e.sustain+'s' : ''}</div>
+      </div>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+// ---------------- Settings ----------------
+function updateSensLabel(v){
+  const labels = {1:'很安靜',2:'安靜',3:'中',4:'吵雜',5:'很吵雜'};
+  document.getElementById('sensVal').textContent = labels[v] || '中';
+}
+document.getElementById('sensSlider').addEventListener('input', (e)=>{
+  updateSensLabel(e.target.value);
+  const s = getSettings(); s.sensitivity = parseInt(e.target.value); storeSet('settings', s);
+});
+
+document.getElementById('clearDataBtn').addEventListener('click', ()=>{
+  if(confirm('確定要刪除所有歌單、歌詞、筆記與練習紀錄嗎?此動作無法復原。')){
+    clearAllData();
+    toast('資料已清除');
+    renderPlaylist();
+    renderHistory();
+    document.getElementById('howToCard').style.display = 'block';
+  }
+});
+
+// ---------------- Init ----------------
+initFromSettings();
+resizeCanvas();
+window.addEventListener('beforeunload', ()=>{ if(sessionPitches.length>5) endSessionAndSave(); });
+
+// PWA: register service worker (safe no-op on browsers without support
+// or when opened as a plain local file)
+if('serviceWorker' in navigator && location.protocol === 'https:'){
+  navigator.serviceWorker.register('sw.js').catch(()=>{ /* non-fatal */ });
+}
+</script>
+</body>
+</html>
