@@ -659,7 +659,7 @@
     <div class="card">
       <h3>即時音準(音名與音分)</h3>
       <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
-        大字顯示你目前唱到的音,例如 <span class="mono" style="color:var(--amber);">A4</span> 就是中央A。旁邊的「¢」是音分:100音分等於一個半音,數字代表你和最近的標準音之間的距離。<b style="color:var(--text);">+代表偏高、−代表偏低</b>;能穩定保持在±20¢以內,聽起來就已經是準的。下方的曲線圖畫出你音高的走勢,唱旋律時可以看出自己是「滑」上去還是「跳」上去。<br><br>
+        大字顯示你目前唱到的音,例如 <span class="mono" style="color:var(--amber);">A4</span> 就是中央A。旁邊的「¢」是音分:100音分等於一個半音,數字代表你和最近的標準音之間的距離。<b style="color:var(--text);">+代表偏高、−代表偏低</b>;能穩定保持在±20¢以內,聽起來就已經是準的。下方的曲線圖左側標有C的音名當作參考線(像鋼琴卷簾),可以看出自己實際唱在哪個音附近,而不只是看線條形狀。<br><br>
         🎧 <b style="color:var(--text);">請戴耳機使用:</b>如果用喇叭外放伴奏,麥克風會把歌曲和你的聲音混在一起,音準偵測就不準了。戴上耳機,麥克風聽到的就只有你。
       </p>
     </div>
@@ -1235,29 +1235,46 @@ function drawLoop(){
   requestAnimationFrame(drawLoop);
 }
 
+function noteFreq(midi){ return 440 * Math.pow(2, (midi-69)/12); }
+
 function renderPitchCanvas(){
   const w = canvas.width, h = canvas.height;
   ctx2d.clearRect(0,0,w,h);
-  ctx2d.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--line');
-  ctx2d.lineWidth = 1;
-  for(let i=1;i<4;i++){
-    const y = h*i/4;
-    ctx2d.beginPath();
-    ctx2d.moveTo(0,y); ctx2d.lineTo(w,y);
-    ctx2d.stroke();
-  }
   const minF = 80, maxF = 1000;
   function yFor(f){
     const t = (Math.log(f)-Math.log(minF)) / (Math.log(maxF)-Math.log(minF));
     return h - t*h;
   }
+
+  // piano-roll style gridlines: one labeled line per "C" note in range,
+  // so the graph shows exactly which notes were sung, not just a shape
+  const leftMargin = 36; // room for note labels, in canvas pixel units (2x scale)
+  const dim = getComputedStyle(document.documentElement).getPropertyValue('--line');
+  const dimText = getComputedStyle(document.documentElement).getPropertyValue('--text-dim');
+  ctx2d.font = '20px "JetBrains Mono", monospace';
+  ctx2d.textBaseline = 'middle';
+  for(let octave = -1; octave <= 8; octave++){
+    const midi = (octave+1)*12; // MIDI number for C in this octave
+    const freq = noteFreq(midi);
+    if(freq < minF || freq > maxF) continue;
+    const y = yFor(freq);
+    ctx2d.strokeStyle = dim;
+    ctx2d.lineWidth = 1;
+    ctx2d.beginPath();
+    ctx2d.moveTo(leftMargin, y); ctx2d.lineTo(w, y);
+    ctx2d.stroke();
+    ctx2d.fillStyle = dimText;
+    ctx2d.fillText('C'+octave, 4, y);
+  }
+
   ctx2d.strokeStyle = '#e8a33d';
   ctx2d.lineWidth = 4;
   ctx2d.beginPath();
   let started = false;
-  const step = w / pitchHistory.length;
+  const plotW = w - leftMargin;
+  const step = plotW / pitchHistory.length;
   pitchHistory.forEach((f, i)=>{
-    const x = i*step;
+    const x = leftMargin + i*step;
     if(f){
       const y = yFor(Math.max(minF, Math.min(maxF,f)));
       if(!started){ ctx2d.moveTo(x,y); started = true; }
@@ -1332,11 +1349,26 @@ document.getElementById('duetBtn').addEventListener('click', ()=>{
   ytPlayer.unMute();
   recAudio.currentTime = 0;
 
-  // apply the manual sync offset: whichever side should start later gets a setTimeout delay
+  // apply the manual sync offset: whichever side should start later gets a delay.
+  // Critically, the side with NO delay must play synchronously right here in the
+  // click handler — wrapping play() in setTimeout (even 0ms) breaks the browser's
+  // "this came from a user gesture" permission and can silently block playback.
   const videoDelayMs = syncOffset < 0 ? Math.abs(syncOffset) * 1000 : 0;
   const recDelayMs = syncOffset > 0 ? syncOffset * 1000 : 0;
-  duetTimers.push(setTimeout(()=>{ if(duetActive) ytPlayer.playVideo(); }, videoDelayMs));
-  duetTimers.push(setTimeout(()=>{ if(duetActive) recAudio.play(); }, recDelayMs));
+
+  if(videoDelayMs > 0){
+    duetTimers.push(setTimeout(()=>{ if(duetActive) ytPlayer.playVideo(); }, videoDelayMs));
+  } else {
+    ytPlayer.playVideo();
+  }
+  if(recDelayMs > 0){
+    duetTimers.push(setTimeout(()=>{ if(duetActive) recAudio.play().catch(()=>{}); }, recDelayMs));
+  } else {
+    recAudio.play().catch(()=>{
+      toast('瀏覽器擋下了錄音播放,請再按一次「跟原曲一起播放」');
+      stopDuet();
+    });
+  }
 
   // if either side ends or is paused by the user, stop the duet cleanly
   recAudio.addEventListener('ended', stopDuet, {once:true});
