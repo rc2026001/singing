@@ -467,6 +467,25 @@
     padding:0 6px;
     font-size:13px;
   }
+  .pl-scroll{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    padding-bottom:4px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .pl-chip{
+    flex:0 0 auto;
+    white-space:nowrap;
+    cursor:pointer;
+  }
+  .pl-chip-name{
+    max-width:120px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .pl-scroll .empty{padding:10px 4px; white-space:normal;}
 
   .slider-row{margin-bottom:12px;}
   .slider-row label{
@@ -508,7 +527,6 @@
 <main>
   <div class="tabs">
     <div class="tab active" data-tab="practice">練習</div>
-    <div class="tab" data-tab="playlist">歌單</div>
     <div class="tab" data-tab="history">紀錄</div>
     <div class="tab" data-tab="guide">說明</div>
     <div class="tab" data-tab="settings">設定</div>
@@ -526,6 +544,19 @@
       </ol>
       <div class="row" style="margin-top:8px;">
         <button class="btn secondary small" id="hideHowToBtn">知道了,不再顯示</button>
+      </div>
+    </div>
+
+    <div class="card" id="plCard">
+      <div class="collapse-head" id="plHead">
+        <h3 style="margin:0;">我的歌單<span id="plCountHint" class="ab-hint"></span></h3>
+        <span class="chev" id="plChev">▸</span>
+      </div>
+      <div id="plBody" style="display:none;">
+        <div id="playlistList" class="pl-scroll"><div class="empty">還沒有加入任何歌曲</div></div>
+        <p style="font-size:11px;color:var(--text-dim);margin:10px 0 0;">
+          🔒 只存在這台裝置的瀏覽器裡,其他人看不到你的歌單。
+        </p>
       </div>
     </div>
 
@@ -637,17 +668,6 @@
       <textarea id="songNotes" placeholder="例如:副歌那句氣不夠、第二段容易走音..."></textarea>
     </div>
 
-  </section>
-
-  <!-- PLAYLIST VIEW -->
-  <section class="view" id="view-playlist">
-    <div class="card">
-      <h3>我的歌單</h3>
-      <div id="playlistList"><div class="empty">還沒有加入任何歌曲</div></div>
-      <p style="font-size:11.5px;color:var(--text-dim);margin:12px 0 0;border-top:1px solid var(--line);padding-top:10px;">
-        🔒 歌單只儲存在你這台裝置的瀏覽器裡,重新整理後仍會保留;其他人打開這個網站看不到你的歌單。
-      </p>
-    </div>
   </section>
 
   <!-- HISTORY VIEW -->
@@ -848,6 +868,8 @@ function initFromSettings(){
   updateSensLabel(s.sensitivity || 3);
   if(s.hideHowTo) document.getElementById('howToCard').style.display = 'none';
   setAbOpen(!!s.abOpen, false); // collapsed by default, remembers user's choice
+  setPlOpen(!!s.plOpen, false);
+  if(!s.plOpen) renderPlaylist(); // still show the (count) hint even while collapsed
 }
 document.getElementById('hideHowToBtn').addEventListener('click', ()=>{
   document.getElementById('howToCard').style.display = 'none';
@@ -861,7 +883,6 @@ document.querySelectorAll('.tab').forEach(tabEl=>{
     document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
     tabEl.classList.add('active');
     document.getElementById('view-' + tabEl.dataset.tab).classList.add('active');
-    if(tabEl.dataset.tab === 'playlist') renderPlaylist();
     if(tabEl.dataset.tab === 'history'){ renderHistory(); renderFeedback(); }
   });
 });
@@ -1077,6 +1098,20 @@ function stopAbLoop(){
   document.getElementById('abToggle').textContent = '開始反覆播放';
   if(abPollTimer){ clearInterval(abPollTimer); abPollTimer = null; }
 }
+
+// ---------------- Playlist card collapse ----------------
+function setPlOpen(open, persist){
+  document.getElementById('plBody').style.display = open ? 'block' : 'none';
+  document.getElementById('plChev').classList.toggle('open', open);
+  if(open) renderPlaylist(); // always show current data when opened
+  if(persist){
+    const s = getSettings(); s.plOpen = open; storeSet('settings', s);
+  }
+}
+document.getElementById('plHead').addEventListener('click', ()=>{
+  const isOpen = document.getElementById('plBody').style.display !== 'none';
+  setPlOpen(!isOpen, true);
+});
 
 // ---------------- A-B card collapse ----------------
 function setAbOpen(open, persist){
@@ -1580,44 +1615,45 @@ document.getElementById('saveSongBtn').addEventListener('click', ()=>{
   if(!name){ toast('已取消'); return; } // cancel or empty submit aborts the save
   storeSet('playlist:' + currentVideoId, {name, videoId: currentVideoId, addedAt: Date.now()});
   document.getElementById('songNameInput').value = name;
+  renderPlaylist();
   toast('已加入歌單:' + name);
 });
 
 function renderPlaylist(){
   const keys = storeListKeys('playlist:');
   const container = document.getElementById('playlistList');
-  if(!keys.length){ container.innerHTML = '<div class="empty">還沒有加入任何歌曲</div>'; return; }
+  const hint = document.getElementById('plCountHint');
+  if(!keys.length){
+    container.innerHTML = '<div class="empty">還沒有加入任何歌曲</div>';
+    hint.textContent = '';
+    return;
+  }
   const items = keys.map(k => storeGet(k, null)).filter(Boolean)
     .sort((a,b)=>b.addedAt-a.addedAt);
+  hint.textContent = '(' + items.length + ')';
   let html = '';
   for(const item of items){
-    html += `<div class="list-item">
-      <div>
-        <div class="name">${escapeHtml(item.name)}</div>
-        <div class="meta">${new Date(item.addedAt).toLocaleDateString()}</div>
-      </div>
-      <div>
-        <button class="icon-btn" data-action="play" data-vid="${item.videoId}">播放</button>
-        <button class="icon-btn" data-action="rename" data-vid="${item.videoId}">✏️</button>
-        <button class="icon-btn" data-action="remove" data-vid="${item.videoId}">刪除</button>
-      </div>
+    html += `<div class="take-chip pl-chip" data-vid="${item.videoId}" data-action="play">
+      <span class="pl-chip-name">${escapeHtml(item.name)}</span>
+      <span class="del" data-action="rename" data-vid="${item.videoId}">✏️</span>
+      <span class="del" data-action="remove" data-vid="${item.videoId}">✕</span>
     </div>`;
   }
-  container.innerHTML = html || '<div class="empty">還沒有加入任何歌曲</div>';
+  container.innerHTML = html;
 }
 // event delegation: names never pass through HTML attributes, so any
 // characters (apostrophes, quotes, emoji) are safe
 document.getElementById('playlistList').addEventListener('click', (e)=>{
-  const btn = e.target.closest('button[data-action]');
-  if(!btn) return;
-  const vid = btn.dataset.vid;
-  if(btn.dataset.action === 'play'){
+  const target = e.target.closest('[data-action]');
+  if(!target) return;
+  const vid = target.dataset.vid;
+  const action = target.dataset.action;
+  if(action === 'play'){
     const item = storeGet('playlist:' + vid, null);
-    document.querySelector('.tab[data-tab="practice"]').click();
     document.getElementById('songNameInput').value = item ? item.name : '';
     loadVideo(vid);
     toast('已載入「' + (item ? item.name : vid) + '」');
-  } else if(btn.dataset.action === 'rename'){
+  } else if(action === 'rename'){
     const item = storeGet('playlist:' + vid, null);
     if(!item) return;
     const newName = (prompt('改成什麼名字?', item.name) || '').trim();
@@ -1628,7 +1664,7 @@ document.getElementById('playlistList').addEventListener('click', (e)=>{
     if(currentVideoId === vid) document.getElementById('songNameInput').value = newName;
     renderPlaylist();
     toast('已改名為:' + newName);
-  } else if(btn.dataset.action === 'remove'){
+  } else if(action === 'remove'){
     storeDelete('playlist:' + vid);
     renderPlaylist();
     toast('已刪除');
