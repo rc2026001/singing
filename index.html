@@ -584,6 +584,14 @@
       <button class="btn" id="practiceBtn" style="width:100%;margin-top:8px;">🎤 開始練習</button>
     </div>
 
+    <div class="card" id="feedbackCardPractice" style="display:none;">
+      <h3>這次練習回饋</h3>
+      <div id="feedbackBodyPractice" style="font-size:13.5px;line-height:1.7;"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn secondary small" id="copySummaryBtnPractice">複製練習摘要(可貼給AI深入分析)</button>
+      </div>
+    </div>
+
     <div class="card" id="abCard">
       <div class="collapse-head" id="abHead">
         <h3 style="margin:0;">A-B 反覆練習<span id="abStateHint" class="ab-hint"></span></h3>
@@ -943,10 +951,28 @@ function handleGo(){
 let lastTypedName = '';
 
 function loadVideo(id){
+  if(currentVideoId !== id){
+    // switching to a different song — old takes' timestamps belong to the
+    // PREVIOUS song's timeline and would seek to the wrong place (or error)
+    // if reused for a duet against this new video
+    clearTakesForSongSwitch();
+  }
   currentVideoId = id;
   document.getElementById('videoPlaceholder').style.display = 'none';
   if(!ytApiReady){ pendingVideoId = id; return; }
   createPlayer(id);
+}
+function clearTakesForSongSwitch(){
+  if(!takes.length) return;
+  stopDuet();
+  takes.forEach(t=>URL.revokeObjectURL(t.url));
+  takes = [];
+  activeTakeIndex = -1;
+  recVideoStartTime = null;
+  const audioEl = document.getElementById('recAudio');
+  audioEl.removeAttribute('src');
+  document.getElementById('recPlaybackWrap').style.display = 'none';
+  renderTakes();
 }
 
 function createPlayer(id){
@@ -1209,11 +1235,14 @@ function autoCorrelate(buf, sampleRate){
 }
 
 async function startPractice(){
+  if(startPractice._starting || micActive) return; // already starting or running — ignore a fast double-tap
+  startPractice._starting = true;
   try{
     micStream = await navigator.mediaDevices.getUserMedia({audio:{
       echoCancellation:true, noiseSuppression:true
     }});
   }catch(e){
+    startPractice._starting = false;
     if(e && (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError')){
       toast('麥克風權限被拒絕。請到瀏覽器的網站設定,將本站的麥克風改為「允許」後再試');
     } else if(e && (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError')){
@@ -1223,6 +1252,7 @@ async function startPractice(){
     }
     return;
   }
+  startPractice._starting = false;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if(audioCtx.state === 'suspended') audioCtx.resume();
   const source = audioCtx.createMediaStreamSource(micStream);
@@ -1454,10 +1484,19 @@ function startTakeRecording(){
   catch(e){ toast('這個瀏覽器不支援錄音,將只顯示音準'); return; }
   takeStartTime = (ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
     ? ytPlayer.getCurrentTime() : null;
-  mediaRecorder.ondataavailable = e => recChunks.push(e.data);
-  mediaRecorder.onstop = ()=>{
-    const blob = new Blob(recChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
-    takes.push({url: URL.createObjectURL(blob), videoStart: takeStartTime, date: Date.now()});
+
+  // snapshot these locally: if the user stops and restarts practice very
+  // quickly, the globals above get reassigned for the NEW take before this
+  // recorder's 'onstop' fires for the OLD one — closing over locals instead
+  // of the shared globals keeps each take's data correctly isolated
+  const thisRecorder = mediaRecorder;
+  const thisChunks = recChunks;
+  const thisVideoStart = takeStartTime;
+
+  thisRecorder.ondataavailable = e => thisChunks.push(e.data);
+  thisRecorder.onstop = ()=>{
+    const blob = new Blob(thisChunks, {type: thisRecorder.mimeType || 'audio/webm'});
+    takes.push({url: URL.createObjectURL(blob), videoStart: thisVideoStart, date: Date.now()});
     if(takes.length > MAX_TAKES){
       const removed = takes.shift();
       URL.revokeObjectURL(removed.url);
@@ -1468,7 +1507,7 @@ function startTakeRecording(){
     switchToTake(takes.length - 1); // newest take becomes active
     toast('這次練習已錄下(最多保留' + MAX_TAKES + '次,僅暫存於本次分頁)');
   };
-  mediaRecorder.start();
+  thisRecorder.start();
   isRecording = true;
 }
 
@@ -1543,14 +1582,18 @@ recAudio.addEventListener('play', ()=>{
   duetTimers.push(bufferWait);
 });
 
-recAudio.addEventListener('pause', ()=>{
-  if(suppress.pause > 0){ suppress.pause--; return; } // our own hold-for-buffering pause, not the user
+function endDuetState(){
   duetActive = false;
   duetTimers.forEach(t=>clearTimeout(t));
   duetTimers = [];
   document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
   if(ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
   if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100); // restore full volume
+}
+
+recAudio.addEventListener('pause', ()=>{
+  if(suppress.pause > 0){ suppress.pause--; return; } // our own hold-for-buffering pause, not the user
+  endDuetState();
 });
 
 recAudio.addEventListener('seeked', ()=>{
@@ -1562,10 +1605,7 @@ recAudio.addEventListener('seeked', ()=>{
 });
 
 recAudio.addEventListener('ended', ()=>{
-  duetActive = false;
-  document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
-  if(ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
-  if(ytPlayer && typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(100);
+  endDuetState();
 });
 
 // the duet button is just a convenience wrapper around the recording's own
@@ -1577,7 +1617,13 @@ document.getElementById('duetBtn').addEventListener('click', ()=>{
 });
 
 function stopDuet(){
-  if(duetActive || !recAudio.paused) recAudio.pause();
+  if(!recAudio.paused){
+    recAudio.pause(); // will fire 'pause' -> endDuetState() naturally
+  } else if(duetActive){
+    // already paused (e.g. mid "準備中" buffering-wait) — no pause event will
+    // fire, so clean up directly or this state (and the polling loop) sticks
+    endDuetState();
+  }
 }
 
 document.getElementById('duetBalance').addEventListener('input', applyDuetBalance);
@@ -1723,6 +1769,7 @@ function endSessionAndSave(){
   sessionCents = [];
   bestSustain = 0;
   document.getElementById('sustainBest').textContent = '0.0';
+  renderFeedback(); // show the new feedback immediately in the practice tab
 }
 
 // ---------------- Rule-based coaching feedback ----------------
@@ -1769,18 +1816,23 @@ function buildFeedback(e){
 
 function renderFeedback(){
   const e = storeGet('lastfeedback', null);
-  const card = document.getElementById('feedbackCard');
-  if(!e){ card.style.display = 'none'; return; }
-  const tips = buildFeedback(e);
-  if(!tips.length){ card.style.display = 'none'; return; }
-  card.style.display = 'block';
-  document.getElementById('feedbackBody').innerHTML =
-    '<div style="color:var(--text-dim);font-size:12px;margin-bottom:8px;">' +
-    escapeHtml(e.song) + ' · ' + new Date(e.date).toLocaleString() + '</div>' +
-    tips.map(t=>'<p style="margin:0 0 10px;">' + escapeHtml(t) + '</p>').join('');
+  const tips = e ? buildFeedback(e) : [];
+  const targets = [
+    {card:'feedbackCard', body:'feedbackBody'},
+    {card:'feedbackCardPractice', body:'feedbackBodyPractice'}
+  ];
+  for(const t of targets){
+    const cardEl = document.getElementById(t.card);
+    if(!e || !tips.length){ cardEl.style.display = 'none'; continue; }
+    cardEl.style.display = 'block';
+    document.getElementById(t.body).innerHTML =
+      '<div style="color:var(--text-dim);font-size:12px;margin-bottom:8px;">' +
+      escapeHtml(e.song) + ' · ' + new Date(e.date).toLocaleString() + '</div>' +
+      tips.map(tip=>'<p style="margin:0 0 10px;">' + escapeHtml(tip) + '</p>').join('');
+  }
 }
 
-document.getElementById('copySummaryBtn').addEventListener('click', ()=>{
+function copyPracticeSummary(){
   const e = storeGet('lastfeedback', null);
   if(!e){ toast('還沒有練習資料'); return; }
   const span = semitoneSpan(e.min, e.max);
@@ -1794,7 +1846,9 @@ document.getElementById('copySummaryBtn').addEventListener('click', ()=>{
     ()=>toast('已複製!貼到Claude等AI助手就能得到深入分析'),
     ()=>toast('複製失敗,請手動選取文字')
   );
-});
+}
+document.getElementById('copySummaryBtn').addEventListener('click', copyPracticeSummary);
+document.getElementById('copySummaryBtnPractice').addEventListener('click', copyPracticeSummary);
 setInterval(()=>{ if(sessionPitches.length>200) endSessionAndSave(); }, 60000);
 
 function renderProgressChart(entries){
