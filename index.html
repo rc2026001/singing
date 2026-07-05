@@ -432,6 +432,41 @@
     resize:vertical;
   }
   textarea#songLyrics{min-height:130px; line-height:1.8;}
+  .autosave-hint{
+    text-transform:none;
+    letter-spacing:0;
+    font-size:10.5px;
+    color:var(--teal);
+    font-weight:500;
+    margin-left:6px;
+  }
+  .takes-list{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+    margin-bottom:8px;
+  }
+  .take-chip{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    background:var(--ink-3);
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:6px 6px 6px 12px;
+    font-size:12px;
+    cursor:pointer;
+    color:var(--text-dim);
+  }
+  .take-chip.active{
+    border-color:var(--amber);
+    color:var(--text);
+  }
+  .take-chip .del{
+    color:var(--text-dim);
+    padding:0 6px;
+    font-size:13px;
+  }
 
   .slider-row{margin-bottom:12px;}
   .slider-row label{
@@ -487,7 +522,7 @@
       <ol class="steps">
         <li>🎧 先戴上耳機——這樣麥克風只會聽到你的聲音,不會把伴奏一起收進去</li>
         <li>輸入歌名按「前往」,會開YouTube讓你找影片;複製影片連結,貼回來再按一次「前往」</li>
-        <li>按「🎤 開始收音」,跟著唱,看即時音準!</li>
+        <li>按「🎤 開始練習」——音樂會開始播放、麥克風開始偵測音準,同時自動錄音,結束後可以回放比較!</li>
       </ol>
       <div class="row" style="margin-top:8px;">
         <button class="btn secondary small" id="hideHowToBtn">知道了,不再顯示</button>
@@ -508,6 +543,14 @@
     <div class="video-wrap" id="videoWrap">
       <div class="video-placeholder" id="videoPlaceholder">還沒有載入影片<br>先在上方輸入歌名或貼上連結</div>
       <div id="ytPlayerDiv"></div>
+    </div>
+
+    <div class="card">
+      <div class="mic-status">
+        <div class="dot" id="micDot"></div>
+        <span id="micStatusText">還沒開始</span>
+      </div>
+      <button class="btn" id="practiceBtn" style="width:100%;margin-top:8px;">🎤 開始練習</button>
     </div>
 
     <div class="card" id="abCard">
@@ -565,15 +608,8 @@
         <span>穩定 ±<b id="steadyNow">--</b>¢</span>
         <span>本次最長 <b id="sustainBest">0.0</b>s</span>
       </div>
-      <div class="mic-status">
-        <div class="dot" id="micDot"></div>
-        <span id="micStatusText">麥克風未啟動</span>
-      </div>
-      <div class="transport">
-        <button class="btn small" id="micToggleBtn">🎤 開始收音</button>
-        <button class="btn secondary small" id="recToggleBtn" disabled>● 錄音</button>
-      </div>
       <div id="recPlaybackWrap" style="margin-top:10px;display:none;">
+        <div id="takesList" class="takes-list"></div>
         <audio id="recAudio" controls style="width:100%;"></audio>
         <div class="duet-box">
           <button class="btn secondary small" id="duetBtn" style="width:100%;">🎧 跟原曲一起播放,比較我唱的和原曲</button>
@@ -592,19 +628,13 @@
     </div>
 
     <div class="card" id="lyricsCard" style="display:none;">
-      <h3>歌詞</h3>
+      <h3>歌詞 <span class="autosave-hint">輸入後自動儲存</span></h3>
       <textarea id="songLyrics" placeholder="貼上歌詞,練習時邊看邊唱..."></textarea>
-      <div class="row" style="margin-top:8px;">
-        <button class="btn secondary small" id="saveLyricsBtn">儲存歌詞</button>
-      </div>
     </div>
 
     <div class="card" id="notesCard" style="display:none;">
-      <h3>這首歌的筆記</h3>
+      <h3>這首歌的筆記 <span class="autosave-hint">輸入後自動儲存</span></h3>
       <textarea id="songNotes" placeholder="例如:副歌那句氣不夠、第二段容易走音..."></textarea>
-      <div class="row" style="margin-top:8px;">
-        <button class="btn secondary small" id="saveNotesBtn">儲存筆記</button>
-      </div>
     </div>
 
   </section>
@@ -635,6 +665,14 @@
       <div class="range-stat"><span>最高音</span><span class="val mono" id="rangeMax">--</span></div>
       <div class="range-stat"><span>累積練習次數</span><span class="val mono" id="rangeCount">0</span></div>
     </div>
+    <div class="card" id="progressCard" style="display:none;">
+      <h3>進步趨勢</h3>
+      <canvas id="progressCanvas" style="width:100%;height:130px;display:block;border-radius:9px;background:var(--ink-3);"></canvas>
+      <div class="sing-stats mono" style="margin-top:6px;">
+        <span style="color:var(--amber);">━ 最長持續音(秒)</span>
+        <span style="color:var(--teal);">━ 穩定度(±¢,越低越好)</span>
+      </div>
+    </div>
     <div class="card">
       <h3>練習紀錄</h3>
       <div id="historyList"><div class="empty">還沒有練習紀錄</div></div>
@@ -644,6 +682,12 @@
   <!-- GUIDE VIEW -->
   <section class="view" id="view-guide">
     <div class="card">
+      <h3>「開始練習」</h3>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
+        按下「🎤 開始練習」會同時:開啟麥克風偵測音準、開始播放已載入的歌曲、並<b style="color:var(--text);">自動錄下你這次的練習</b>。按「■ 結束練習」則會一次停止錄音、暫停音樂,並把這次的音域和穩定度寫進練習紀錄。每次練習自動保留為一個錄音(最多3次),不想留的可以隨時刪掉。
+      </p>
+    </div>
+    <div class="card">
       <h3>A-B 反覆練習怎麼用最有效</h3>
       <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
         一次只練<b style="color:var(--text);">一句(約5~15秒)</b>,不要整段副歌一起練——肌肉記憶是一句一句建立的。做法:播放歌曲,<b style="color:var(--text);">句子開始時按一下「標記」、句子結束時再按一下</b>,就圈好範圍了;差一點點可以用−1s/＋1s微調。接著:①先聽2~3遍不要唱,用耳朵記旋律 → ②跟著唱3~5遍,邊看音準線 → ③唱不順就降到0.75×或0.5×速度,<b style="color:var(--text);">慢而準勝過快而亂</b> → ④這句穩了,把終點＋1s往後推,把句子接起來。
@@ -652,8 +696,8 @@
     <div class="card">
       <h3>跟原曲一起播放(比較我唱的和原曲)</h3>
       <p style="font-size:13px;color:var(--text-dim);line-height:1.7;margin:0;">
-        錄完音後可以按「🎧 跟原曲一起播放」,讓原曲和你的錄音同時響起,直接用耳朵比較音準、咬字和情緒——<b style="color:var(--text);">也可以直接用錄音播放器本身的播放/暫停/拖曳來控制</b>,原曲會自動跟著同步,不一定要用這顆按鈕。用「混音平衡」滑桿調整兩邊的音量比例;如果聽起來一個比另一個快,用「同步微調」的兩個按鈕(每按一次調整0.2秒)把它們對齊,調整會馬上套用。<br><br>
-        <b style="color:var(--text);">誠實說明:</b>這是兩段聲音同時播放,不是把它們合併成一個檔案——瀏覽器基於安全限制,無法擷取YouTube本身的聲音來混音,所以沒有辦法輸出一個「合併好的」音檔。每次重新錄音,同步微調會歸零,需要的話再調一次。
+        每次「結束練習」後,可以按「🎧 跟原曲一起播放」,讓原曲和你的錄音同時響起,直接用耳朵比較音準、咬字和情緒——<b style="color:var(--text);">也可以直接用錄音播放器本身的播放/暫停/拖曳來控制</b>,原曲會自動跟著同步,不一定要用這顆按鈕。用「混音平衡」滑桿調整兩邊的音量比例;如果聽起來一個比另一個快,用「同步微調」的兩個按鈕(每按一次調整0.2秒)把它們對齊,調整會馬上套用。<br><br>
+        <b style="color:var(--text);">誠實說明:</b>這是兩段聲音同時播放,不是把它們合併成一個檔案——瀏覽器基於安全限制,無法擷取YouTube本身的聲音來混音,所以沒有辦法輸出一個「合併好的」音檔。每次新的練習,同步微調會歸零,需要的話再調一次。
       </p>
     </div>
     <div class="card">
@@ -723,6 +767,17 @@
         重新整理或下次再來,資料都還在;但換裝置、換瀏覽器、使用無痕模式或清除瀏覽資料後就會消失,也無法在裝置之間同步。<br><br>
         影片由YouTube提供,播放時適用YouTube自身的條款與隱私政策。
       </p>
+    </div>
+    <div class="card">
+      <h3>資料備份</h3>
+      <p style="font-size:12px;color:var(--text-dim);margin:0 0 10px;">
+        資料只存在這台裝置上——換手機或清除瀏覽資料前,先匯出備份檔;在新裝置上匯入即可還原歌單、歌詞、筆記與練習紀錄。
+      </p>
+      <div class="row">
+        <button class="btn secondary small" id="exportBtn">匯出資料</button>
+        <button class="btn secondary small" id="importBtn">匯入資料</button>
+      </div>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none;">
     </div>
     <div class="card">
       <h3>清除資料</h3>
@@ -876,8 +931,11 @@ function loadVideo(id){
 function createPlayer(id){
   stopAbLoop();
   resetSpeedUI();
-  abSet('start', null);
-  abSet('end', null);
+  // restore this song's saved A-B section if one exists, else clear
+  const savedAb = storeGet('absec:' + id, null);
+  abSet('start', savedAb ? savedAb.start : null);
+  abSet('end', savedAb ? savedAb.end : null);
+  if(savedAb) toast('已載入上次標記的段落 ' + fmtTime(savedAb.start) + ' ~ ' + fmtTime(savedAb.end));
   if(ytPlayer){
     ytPlayer.loadVideoById(id);
     ytPlayer.unMute();
@@ -945,11 +1003,12 @@ document.getElementById('abMarkBtn').addEventListener('click', ()=>{
   } else {
     if(t <= abGet('start')){ toast('終點要在起點之後,請繼續播放再按'); return; }
     abSet('end', t);
+    if(currentVideoId) storeSet('absec:' + currentVideoId, {start: abGet('start'), end: t});
     toast('標記完成 ' + fmtTime(abGet('start')) + ' ~ ' + fmtTime(t) + ',按「開始反覆播放」');
   }
 });
 
-document.querySelectorAll('.nudge-btn').forEach(btn=>{
+document.querySelectorAll('.ab-marks .nudge-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
     const which = btn.dataset.target;
     const delta = parseInt(btn.dataset.delta);
@@ -963,6 +1022,9 @@ document.querySelectorAll('.nudge-btn').forEach(btn=>{
       toast('終點要在起點之後'); return;
     }
     abSet(which, next);
+    if(currentVideoId && abGet('start') !== null && abGet('end') !== null){
+      storeSet('absec:' + currentVideoId, {start: abGet('start'), end: abGet('end')});
+    }
     // if a loop is running, restart it so the new bounds take effect cleanly
     if(abActive){ restartAbLoop(); }
   });
@@ -972,6 +1034,7 @@ document.getElementById('abResetBtn').addEventListener('click', ()=>{
   stopAbLoop();
   abSet('start', null);
   abSet('end', null);
+  if(currentVideoId) storeDelete('absec:' + currentVideoId);
   toast('已清除標記');
 });
 
@@ -1110,7 +1173,7 @@ function autoCorrelate(buf, sampleRate){
   return sampleRate / T0;
 }
 
-async function startMic(){
+async function startPractice(){
   try{
     micStream = await navigator.mediaDevices.getUserMedia({audio:{
       echoCancellation:true, noiseSuppression:true
@@ -1132,29 +1195,37 @@ async function startMic(){
   analyser.fftSize = 2048;
   source.connect(analyser);
   micActive = true;
-  // gentle one-time reminder: speakers + mic = polluted pitch readings
-  if(ytPlayer && typeof ytPlayer.getPlayerState === 'function' &&
-     ytPlayer.getPlayerState() === YT.PlayerState.PLAYING && !startMic._warned){
-    startMic._warned = true;
+
+  // recording starts automatically with the session — one button does it all
+  startTakeRecording();
+
+  document.getElementById('micDot').classList.add('live','rec');
+  document.getElementById('micStatusText').textContent = '練習中(錄音進行中)';
+  document.getElementById('practiceBtn').textContent = '■ 結束練習';
+
+  // if a song is loaded but paused, start it playing too
+  if(ytPlayer && typeof ytPlayer.getPlayerState === 'function' && !duetActive){
+    const st = ytPlayer.getPlayerState();
+    if(st === YT.PlayerState.PAUSED || st === YT.PlayerState.CUED || st === YT.PlayerState.UNSTARTED){
+      ytPlayer.unMute();
+      ytPlayer.playVideo();
+    }
+  }
+  if(!startPractice._warned){
+    startPractice._warned = true;
     toast('🎧 小提醒:戴耳機唱,音準偵測才不會被伴奏干擾');
   }
-  document.getElementById('micDot').classList.add('live');
-  document.getElementById('micStatusText').textContent = '收音中';
-  document.getElementById('micToggleBtn').textContent = '■ 停止收音';
-  document.getElementById('recToggleBtn').disabled = false;
   resizeCanvas();
   drawLoop();
 }
-function stopMic(){
+function stopPractice(){
   micActive = false;
   if(isRecording && mediaRecorder){ mediaRecorder.stop(); isRecording = false; }
   if(audioCtx) audioCtx.close();
   if(micStream) micStream.getTracks().forEach(t=>t.stop());
   document.getElementById('micDot').classList.remove('live','rec');
-  document.getElementById('micStatusText').textContent = '麥克風未啟動';
-  document.getElementById('micToggleBtn').textContent = '🎤 開始收音';
-  document.getElementById('recToggleBtn').disabled = true;
-  document.getElementById('recToggleBtn').textContent = '● 錄音';
+  document.getElementById('micStatusText').textContent = '還沒開始';
+  document.getElementById('practiceBtn').textContent = '🎤 開始練習';
   pauseVideoIfPlaying(); // not singing along anymore, so pause the song too
   endSessionAndSave();
 }
@@ -1166,8 +1237,8 @@ function pauseVideoIfPlaying(){
     if(abActive) stopAbLoop();
   }
 }
-document.getElementById('micToggleBtn').addEventListener('click', ()=>{
-  if(micActive){ stopMic(); } else { startMic(); }
+document.getElementById('practiceBtn').addEventListener('click', ()=>{
+  if(micActive){ stopPractice(); } else { startPractice(); }
 });
 
 // sustained-note tracking: how long the same note is held, how steady it is
@@ -1216,19 +1287,25 @@ function drawLoop(){
   const volPct = Math.min(100, Math.round(lastRms * 400));
   document.getElementById('volFill').style.width = volPct + '%';
 
+  // while the recording (duet) is playing back, the mic hears that playback —
+  // keep showing live pitch, but don't count it toward session stats/feedback
+  const statsPaused = duetActive || !document.getElementById('recAudio').paused;
+
   let noteInfo = null;
   if(freq > 60 && freq < 1200){
     noteInfo = freqToNote(freq);
     document.getElementById('pitchNote').textContent = noteInfo.name;
     document.getElementById('pitchHz').textContent = freq.toFixed(1) + ' Hz  ' +
       (noteInfo.cents>=0?'+':'') + noteInfo.cents + '¢';
-    sessionPitches.push(freq);
-    sessionCents.push(Math.abs(noteInfo.cents));
+    if(!statsPaused){
+      sessionPitches.push(freq);
+      sessionCents.push(Math.abs(noteInfo.cents));
+    }
   } else {
     document.getElementById('pitchNote').textContent = '--';
     document.getElementById('pitchHz').textContent = '-- Hz';
   }
-  updateSingStats(noteInfo);
+  updateSingStats(statsPaused ? null : noteInfo);
   pitchHistory.push(freq > 60 && freq < 1200 ? freq : null);
   if(pitchHistory.length > 220) pitchHistory.shift();
   renderPitchCanvas();
@@ -1286,43 +1363,79 @@ function renderPitchCanvas(){
   ctx2d.stroke();
 }
 
-// ---------------- Recording ----------------
-let recVideoStartTime = null; // where in the song this take began, for duet playback
+// ---------------- Recording (multiple takes) ----------------
+let recVideoStartTime = null; // where in the song the ACTIVE take began, for duet playback
+let takeStartTime = null;     // where the take being recorded right now began
+let takes = [];               // up to 3 session-only takes: {url, videoStart, date}
+let activeTakeIndex = -1;
+const MAX_TAKES = 3;
 
-document.getElementById('recToggleBtn').addEventListener('click', ()=>{
-  if(!isRecording){
-    if(!micStream){ toast('請先開啟麥克風'); return; }
-    recChunks = [];
-    try{ mediaRecorder = new MediaRecorder(micStream); }
-    catch(e){ toast('這個瀏覽器不支援錄音'); return; }
-    recVideoStartTime = (ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
-      ? ytPlayer.getCurrentTime() : null;
-    mediaRecorder.ondataavailable = e => recChunks.push(e.data);
-    mediaRecorder.onstop = ()=>{
-      const blob = new Blob(recChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
-      const audioEl = document.getElementById('recAudio');
-      if(audioEl.src) URL.revokeObjectURL(audioEl.src); // free previous recording
-      audioEl.src = URL.createObjectURL(blob);
-      document.getElementById('recPlaybackWrap').style.display = 'block';
-      document.getElementById('duetMix').style.display = 'none';
-      document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
-      syncOffset = 0;
-      updateSyncDisplay();
-      stopDuet();
-      toast('錄音完成(僅暫存於本次分頁,不會上傳)');
-    };
-    mediaRecorder.start();
-    isRecording = true;
-    document.getElementById('micDot').classList.add('rec');
-    document.getElementById('recToggleBtn').textContent = '■ 停止錄音';
-  } else {
-    mediaRecorder.stop();
-    isRecording = false;
-    document.getElementById('micDot').classList.remove('rec');
-    document.getElementById('recToggleBtn').textContent = '● 錄音';
-    pauseVideoIfPlaying(); // recording stopped, so pause the song too
+function renderTakes(){
+  const el = document.getElementById('takesList');
+  if(!takes.length){ el.innerHTML = ''; return; }
+  el.innerHTML = takes.map((t, i)=>
+    `<div class="take-chip${i===activeTakeIndex?' active':''}" data-i="${i}">
+      第${i+1}次 ${new Date(t.date).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}
+      <span class="del" data-del="${i}">✕</span>
+    </div>`).join('');
+}
+document.getElementById('takesList').addEventListener('click', (e)=>{
+  const del = e.target.closest('[data-del]');
+  if(del){
+    const i = parseInt(del.dataset.del);
+    URL.revokeObjectURL(takes[i].url);
+    takes.splice(i, 1);
+    if(activeTakeIndex === i){ activeTakeIndex = takes.length ? Math.min(i, takes.length-1) : -1; }
+    else if(activeTakeIndex > i){ activeTakeIndex--; }
+    if(activeTakeIndex >= 0){ switchToTake(activeTakeIndex); }
+    else {
+      document.getElementById('recAudio').removeAttribute('src');
+      document.getElementById('recPlaybackWrap').style.display = 'none';
+    }
+    renderTakes();
+    return;
   }
+  const chip = e.target.closest('.take-chip');
+  if(chip){ switchToTake(parseInt(chip.dataset.i)); }
 });
+function switchToTake(i){
+  if(!takes[i]) return;
+  stopDuet();
+  activeTakeIndex = i;
+  const audioEl = document.getElementById('recAudio');
+  audioEl.src = takes[i].url;
+  recVideoStartTime = takes[i].videoStart;
+  syncOffset = 0;
+  updateSyncDisplay();
+  renderTakes();
+}
+
+// recording now starts/stops automatically with the practice session —
+// this is called from startPractice(); stopPractice() stops mediaRecorder directly
+function startTakeRecording(){
+  if(isRecording || !micStream) return;
+  recChunks = [];
+  try{ mediaRecorder = new MediaRecorder(micStream); }
+  catch(e){ toast('這個瀏覽器不支援錄音,將只顯示音準'); return; }
+  takeStartTime = (ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+    ? ytPlayer.getCurrentTime() : null;
+  mediaRecorder.ondataavailable = e => recChunks.push(e.data);
+  mediaRecorder.onstop = ()=>{
+    const blob = new Blob(recChunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+    takes.push({url: URL.createObjectURL(blob), videoStart: takeStartTime, date: Date.now()});
+    if(takes.length > MAX_TAKES){
+      const removed = takes.shift();
+      URL.revokeObjectURL(removed.url);
+    }
+    document.getElementById('recPlaybackWrap').style.display = 'block';
+    document.getElementById('duetMix').style.display = 'none';
+    document.getElementById('duetBtn').textContent = '🎧 跟原曲一起播放,比較我唱的和原曲';
+    switchToTake(takes.length - 1); // newest take becomes active
+    toast('這次練習已錄下(最多保留' + MAX_TAKES + '次,僅暫存於本次分頁)');
+  };
+  mediaRecorder.start();
+  isRecording = true;
+}
 
 // ---------------- Duet playback (simultaneous, not a merged file) ----------------
 // Two independent audio sources played together so you can compare by ear.
@@ -1528,19 +1641,23 @@ function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<
 function loadNotesFor(videoId){
   document.getElementById('songNotes').value = storeGet('notes:' + videoId, '');
 }
-document.getElementById('saveNotesBtn').addEventListener('click', ()=>{
-  if(!currentVideoId) return;
-  storeSet('notes:' + currentVideoId, document.getElementById('songNotes').value);
-  toast('筆記已儲存');
-});
 function loadLyricsFor(videoId){
   document.getElementById('songLyrics').value = storeGet('lyrics:' + videoId, '');
 }
-document.getElementById('saveLyricsBtn').addEventListener('click', ()=>{
-  if(!currentVideoId) return;
-  storeSet('lyrics:' + currentVideoId, document.getElementById('songLyrics').value);
-  toast('歌詞已儲存');
-});
+// autosave: notes and lyrics save themselves as you type (debounced),
+// no save button, no lost work if you forget to tap anything
+function attachAutosave(elId, keyPrefix){
+  let timer = null;
+  document.getElementById(elId).addEventListener('input', (e)=>{
+    if(!currentVideoId) return;
+    clearTimeout(timer);
+    timer = setTimeout(()=>{
+      storeSet(keyPrefix + currentVideoId, e.target.value);
+    }, 600);
+  });
+}
+attachAutosave('songNotes', 'notes:');
+attachAutosave('songLyrics', 'lyrics:');
 
 // ---------------- History & vocal range ----------------
 function endSessionAndSave(){
@@ -1644,6 +1761,42 @@ document.getElementById('copySummaryBtn').addEventListener('click', ()=>{
 });
 setInterval(()=>{ if(sessionPitches.length>200) endSessionAndSave(); }, 60000);
 
+function renderProgressChart(entries){
+  // entries: ascending by date; needs at least 2 sessions to show a trend
+  const card = document.getElementById('progressCard');
+  const usable = entries.filter(e => e.sustain || e.steady !== null && e.steady !== undefined);
+  if(usable.length < 2){ card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const c = document.getElementById('progressCanvas');
+  c.width = c.clientWidth * 2;
+  c.height = c.clientHeight * 2;
+  const g = c.getContext('2d');
+  const w = c.width, h = c.height, pad = 14;
+  g.clearRect(0,0,w,h);
+  const recent = usable.slice(-20); // last 20 sessions
+
+  function drawSeries(vals, color){
+    const nums = vals.map(v => (v === null || v === undefined) ? null : v);
+    const present = nums.filter(v => v !== null);
+    if(present.length < 2) return;
+    const min = Math.min(...present), max = Math.max(...present);
+    const span = (max - min) || 1;
+    g.strokeStyle = color;
+    g.lineWidth = 3;
+    g.beginPath();
+    let started = false;
+    nums.forEach((v, i)=>{
+      if(v === null){ started = false; return; }
+      const x = pad + (w - 2*pad) * (nums.length === 1 ? 0.5 : i/(nums.length-1));
+      const y = h - pad - (h - 2*pad) * ((v - min)/span);
+      if(!started){ g.moveTo(x,y); started = true; } else g.lineTo(x,y);
+    });
+    g.stroke();
+  }
+  drawSeries(recent.map(e=>e.sustain || null), '#e8a33d');
+  drawSeries(recent.map(e=>(e.steady !== null && e.steady !== undefined) ? e.steady : null), '#4bb3a1');
+}
+
 function renderHistory(){
   const range = storeGet('vocalrange', {min:null,max:null,count:0});
   document.getElementById('rangeMin').textContent = range.min ? freqToNote(range.min).name : '--';
@@ -1652,9 +1805,14 @@ function renderHistory(){
 
   const keys = storeListKeys('history:');
   const container = document.getElementById('historyList');
-  if(!keys.length){ container.innerHTML = '<div class="empty">還沒有練習紀錄</div>'; return; }
+  if(!keys.length){
+    container.innerHTML = '<div class="empty">還沒有練習紀錄</div>';
+    document.getElementById('progressCard').style.display = 'none';
+    return;
+  }
   const entries = keys.map(k => storeGet(k, null)).filter(Boolean)
     .sort((a,b)=>b.date-a.date);
+  renderProgressChart([...entries].reverse()); // chart wants oldest → newest
   let html = '';
   for(const e of entries.slice(0,30)){
     html += `<div class="list-item">
@@ -1685,6 +1843,59 @@ document.getElementById('clearDataBtn').addEventListener('click', ()=>{
     renderHistory();
     document.getElementById('howToCard').style.display = 'block';
   }
+});
+
+// ---------------- Backup: export / import ----------------
+document.getElementById('exportBtn').addEventListener('click', ()=>{
+  const data = {};
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.startsWith(LS_PREFIX)) data[k] = localStorage.getItem(k);
+    }
+  }catch(e){ toast('匯出失敗'); return; }
+  if(!Object.keys(data).length){ toast('沒有資料可以匯出'); return; }
+  const blob = new Blob([JSON.stringify({app:'singpractice', version:1, exportedAt:Date.now(), data}, null, 2)],
+    {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '歌唱練習室備份-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  toast('備份檔已下載');
+});
+
+document.getElementById('importBtn').addEventListener('click', ()=>{
+  document.getElementById('importFile').click();
+});
+document.getElementById('importFile').addEventListener('change', (e)=>{
+  const file = e.target.files && e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    try{
+      const parsed = JSON.parse(reader.result);
+      if(!parsed || parsed.app !== 'singpractice' || !parsed.data){
+        toast('這不是本站的備份檔'); return;
+      }
+      let count = 0;
+      for(const [k, v] of Object.entries(parsed.data)){
+        if(typeof k === 'string' && k.startsWith(LS_PREFIX) && typeof v === 'string'){
+          localStorage.setItem(k, v);
+          count++;
+        }
+      }
+      initFromSettings();
+      renderPlaylist();
+      renderHistory();
+      renderFeedback();
+      toast('已匯入 ' + count + ' 筆資料');
+    }catch(err){
+      toast('匯入失敗:檔案格式不正確');
+    }
+    e.target.value = ''; // allow re-selecting the same file later
+  };
+  reader.readAsText(file);
 });
 
 // ---------------- Init ----------------
