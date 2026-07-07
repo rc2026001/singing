@@ -468,24 +468,11 @@
     font-size:13px;
   }
   .pl-scroll{
-    display:flex;
-    gap:8px;
-    overflow-x:auto;
-    padding-bottom:4px;
+    max-height:280px;
+    overflow-y:auto;
     -webkit-overflow-scrolling:touch;
   }
-  .pl-chip{
-    flex:0 0 auto;
-    white-space:nowrap;
-    cursor:pointer;
-  }
-  .pl-chip-name{
-    max-width:120px;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    white-space:nowrap;
-  }
-  .pl-scroll .empty{padding:10px 4px; white-space:normal;}
+  .pl-scroll .empty{padding:10px 4px;}
 
   .slider-row{margin-bottom:12px;}
   .slider-row label{
@@ -1679,10 +1666,15 @@ function renderPlaylist(){
   hint.textContent = '(' + items.length + ')';
   let html = '';
   for(const item of items){
-    html += `<div class="take-chip pl-chip" data-vid="${item.videoId}" data-action="play">
-      <span class="pl-chip-name">${escapeHtml(item.name)}</span>
-      <span class="del" data-action="rename" data-vid="${item.videoId}">✏️</span>
-      <span class="del" data-action="remove" data-vid="${item.videoId}">✕</span>
+    html += `<div class="list-item">
+      <div data-action="play" data-vid="${item.videoId}" style="flex:1;cursor:pointer;">
+        <div class="name">${escapeHtml(item.name)}</div>
+        <div class="meta">${new Date(item.addedAt).toLocaleDateString()}</div>
+      </div>
+      <div>
+        <button class="icon-btn" data-action="rename" data-vid="${item.videoId}">✏️</button>
+        <button class="icon-btn" data-action="remove" data-vid="${item.videoId}">刪除</button>
+      </div>
     </div>`;
   }
   container.innerHTML = html;
